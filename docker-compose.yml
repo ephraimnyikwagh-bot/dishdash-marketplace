@@ -1,3 +1,5 @@
+# Optional local MongoDB replica set for development and tests. The API can
+# instead connect to MongoDB Atlas with MONGODB_URI; Docker is not required.
 services:
   mongo:
     image: mongo:7

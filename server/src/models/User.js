@@ -25,4 +25,12 @@ const userSchema = new mongoose.Schema(
 
 userSchema.index({ role: 1, isActive: 1 });
 
+userSchema.set("toJSON", {
+  transform(_document, value) {
+    delete value.passwordHash;
+    delete value.__v;
+    return value;
+  }
+});
+
 export default mongoose.models.User || mongoose.model("User", userSchema);

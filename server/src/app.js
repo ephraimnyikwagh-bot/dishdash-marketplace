@@ -1,11 +1,37 @@
 import express from "express";
+import cors from "cors";
+import helmet from "helmet";
+import authRoutes from "./routes/auth.js";
 
 const app = express();
 
-app.use(express.json());
+const allowedOrigins = (process.env.CLIENT_ORIGIN || "http://localhost:5173")
+  .split(",")
+  .map((origin) => origin.trim());
+
+app.use(helmet());
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(null, false);
+    }
+  })
+);
+app.use(express.json({ limit: "20kb" }));
 
 app.get("/api/health", (_request, response) => {
   response.json({ status: "ok" });
+});
+
+app.use("/api/auth", authRoutes);
+
+app.use((error, _request, response, _next) => {
+  console.error("Unhandled API error:", error);
+  response.status(500).json({ message: "Internal server error" });
 });
 
 export default app;
