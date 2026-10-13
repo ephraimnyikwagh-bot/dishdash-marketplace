@@ -1,7 +1,9 @@
 # DishDash
 
 DishDash is an on-demand food delivery marketplace. This repository currently
-contains the Phase 1 project foundation and Phase 2 authentication/RBAC.
+contains the Phase 1 foundation, Phase 2 authentication/RBAC, Phase 3
+catalog/inventory/cart APIs, Phase 4 transactional checkout and sandbox
+payments, and a React client for buyer/vendor flows.
 
 ## Prerequisites
 
@@ -18,7 +20,9 @@ startup and logs a warning when it is unavailable or cannot be verified.
 
 1. Create `server/.env` using `.env.example` as a guide. Set `MONGODB_URI` to
    your Atlas connection string, `JWT_SECRET` to a random secret of at least 32
-   characters, and `ADMIN_REGISTRATION_KEY` to a separate random secret.
+   characters, and `ADMIN_REGISTRATION_KEY` to a separate random secret. For
+   payments, set Stripe test-mode `STRIPE_SECRET_KEY` and
+   `STRIPE_WEBHOOK_SECRET`.
 2. In Atlas, allow your development IP and ensure the database user has the
    required read/write permissions.
 3. Start the API:
@@ -29,7 +33,11 @@ startup and logs a warning when it is unavailable or cannot be verified.
    npm.cmd run dev
    ```
 
-4. In a second terminal, start the client:
+4. Create `client/.env` from `client/.env.example`. Set `VITE_API_URL` to the
+   API base URL, normally `http://localhost:4000/api`, and set
+   `VITE_STRIPE_PUBLISHABLE_KEY` to the Stripe test-mode publishable key. The
+   server's `CLIENT_ORIGIN` should include `http://localhost:5173`.
+5. In a second terminal, start the client:
 
    ```powershell
    Set-Location client
@@ -37,7 +45,7 @@ startup and logs a warning when it is unavailable or cannot be verified.
    npm.cmd run dev
    ```
 
-   The client runs at `http://localhost:5173`; the API health check is
+   The buyer and vendor UI runs at `http://localhost:5173`; the API health check is
    `http://localhost:4000/api/health`.
 
 ### Optional local MongoDB
@@ -54,15 +62,20 @@ intend to remove its persisted local database volume.
 
 ## Environment variables
 
-| Variable                 | Purpose                                              |
-| ------------------------ | ---------------------------------------------------- |
-| `NODE_ENV`               | Runtime environment                                  |
-| `PORT`                   | API port (default `4000`)                            |
-| `CLIENT_ORIGIN`          | Comma-separated allowed browser origins              |
-| `MONGODB_URI`            | MongoDB Atlas or local replica-set connection string |
-| `JWT_SECRET`             | Random signing key, at least 32 characters           |
-| `JWT_EXPIRES_IN`         | JWT lifetime, for example `1d`                       |
-| `ADMIN_REGISTRATION_KEY` | Secret required to register an admin account         |
+| Variable                      | Purpose                                                 |
+| ----------------------------- | ------------------------------------------------------- |
+| `NODE_ENV`                    | Runtime environment                                     |
+| `PORT`                        | API port (default `4000`)                               |
+| `CLIENT_ORIGIN`               | Comma-separated allowed browser origins                 |
+| `MONGODB_URI`                 | MongoDB Atlas or local replica-set connection string    |
+| `JWT_SECRET`                  | Random signing key, at least 32 characters              |
+| `JWT_EXPIRES_IN`              | JWT lifetime, for example `1d`                          |
+| `ADMIN_REGISTRATION_KEY`      | Secret required to register an admin account            |
+| `STRIPE_SECRET_KEY`           | Stripe test-mode secret key (`sk_test_...`)             |
+| `STRIPE_WEBHOOK_SECRET`       | Signing secret from Stripe CLI or test webhook endpoint |
+| `PLATFORM_FEE_BPS`            | Platform fee in basis points (default `1000`, i.e. 10%) |
+| `VITE_API_URL`                | Client API base URL in `client/.env`                    |
+| `VITE_STRIPE_PUBLISHABLE_KEY` | Stripe test-mode publishable key in `client/.env`       |
 
 Never commit `.env` files or put payment card details in application storage.
 
@@ -89,6 +102,71 @@ routes: `requireAuth` authenticates the bearer token and `allowRoles("vendor")`
 (or another role list) restricts access. Authentication and authorization
 failures return HTTP 401 and 403 respectively.
 
+## Catalog and cart API (Phase 3)
+
+The client signs in buyers and vendors and routes each role to its workspace.
+Buyers can browse/search the catalog, add products to their cart, edit
+quantities, remove items, and pay through the Stripe test-mode Payment Element.
+Vendors can create, update, and remove products and manage stock.
+
+| Method   | Endpoint                           | Access           | Description                                                      |
+| -------- | ---------------------------------- | ---------------- | ---------------------------------------------------------------- |
+| `GET`    | `/products?q=wrap&page=1&limit=12` | Authenticated    | Search and paginate active products                              |
+| `GET`    | `/products/:productId`             | Authenticated    | View an active product                                           |
+| `GET`    | `/products/mine`                   | Vendor           | List own active products                                         |
+| `POST`   | `/products`                        | Vendor           | Create a menu product                                            |
+| `PATCH`  | `/products/:productId`             | Owning vendor    | Update product fields and stock                                  |
+| `DELETE` | `/products/:productId`             | Owning vendor    | Remove product from the catalog                                  |
+| `GET`    | `/cart`                            | Buyer            | Read cart and total in cents                                     |
+| `POST`   | `/cart/items`                      | Buyer            | Add product with `productId` and `quantity`                      |
+| `PATCH`  | `/cart/items/:productId`           | Buyer            | Set item quantity                                                |
+| `DELETE` | `/cart/items/:productId`           | Buyer            | Remove item                                                      |
+| `POST`   | `/checkout`                        | Buyer            | Create an idempotent transaction-backed order and payment intent |
+| `POST`   | `/webhooks/stripe`                 | Stripe signature | Confirm payment, balance ledger, or restore stock on failure     |
+
+Product prices use integer cents, and stock/quantities are whole numbers.
+Catalog pagination accepts `page` and `limit` (maximum 50); `q` searches product
+names. The API base URL for the Vite app is configured with `VITE_API_URL` in
+`client/.env`.
+
+## Checkout and sandbox payments (Phase 4)
+
+`POST /api/checkout` is buyer-only. Provide a unique `Idempotency-Key` request
+header for a cart checkout. The server validates that products are active and
+from one vendor, then reserves stock, snapshots order items, creates the pending
+order/payment record, and clears the cart in one MongoDB transaction. Only after
+that transaction commits does it create a Stripe PaymentIntent with a matching
+Stripe idempotency key and attach its ID to the payment record. If Stripe is
+temporarily unavailable, retrying the same checkout key resumes the committed
+order without decrementing stock a second time. The response contains an order,
+payment summary, and Stripe `clientSecret`; card data is entered through Stripe
+Elements and is never handled or stored by the application.
+
+After the buyer confirms the sandbox payment, Stripe sends the
+`payment_intent.succeeded` event to `POST /api/webhooks/stripe`. A valid
+signature is required. The handler idempotently marks the order Paid and writes
+balanced ledger lines in one transaction: buyer-clearing debit, vendor-payable
+credit, and platform-revenue credit when the fee is nonzero. A
+`payment_intent.payment_failed` event records the failed attempt but keeps the
+PaymentIntent and stock reservation retryable. When Stripe reports
+`payment_intent.canceled`, the server marks the order Failed and restores its
+reserved stock. Never expose `STRIPE_SECRET_KEY` or
+`STRIPE_WEBHOOK_SECRET` to the browser.
+
+For local Stripe CLI testing, start the server and run:
+
+```powershell
+stripe listen --forward-to localhost:4000/api/webhooks/stripe
+```
+
+Copy the CLI's `whsec_...` signing secret into `server/.env`, then restart the
+API. Register/login as a buyer, add an in-stock product to the cart, and choose
+**Continue to payment**. Use a Stripe test card such as `4242 4242 4242 4242`,
+any future expiry, any CVC, and any postal code. The order stays Pending until
+the signed success webhook arrives. Stripe CLI can also trigger failure events
+for testing. The browser persists only the checkout idempotency key to resume
+pending checkout; payment card data is handled directly by Stripe Elements.
+
 ## Checks
 
 ```powershell
@@ -101,7 +179,7 @@ npm.cmd run lint
 npm.cmd run build
 ```
 
-The current authentication tests cover token verification, role authorization,
-and registration validation without a live database. Successful registration
-and login persistence will require a reachable MongoDB test database in later
-integration tests.
+Backend tests include auth/RBAC, catalog/cart, and checkout/payment/ledger flows.
+Checkout tests run against a disposable MongoDB replica set and use a fake
+gateway; they do not contact Stripe. Real webhook testing requires Stripe CLI
+and test-mode keys as described above.

@@ -7,3 +7,4 @@ export { default as Payment } from "./Payment.js";
 export { default as Product } from "./Product.js";
 export { default as Receipt } from "./Receipt.js";
 export { default as User } from "./User.js";
+export { default as WebhookEvent } from "./WebhookEvent.js";

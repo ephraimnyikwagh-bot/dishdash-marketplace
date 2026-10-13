@@ -4,6 +4,10 @@ import helmet from "helmet";
 import authRoutes from "./routes/auth.js";
 import productsRoutes from "./routes/products.js";
 import cartRoutes from "./routes/cart.js";
+import {
+  createCheckoutRouter,
+  createStripeWebhookRouter
+} from "./routes/checkout.js";
 
 const app = express();
 
@@ -23,6 +27,11 @@ app.use(
     }
   })
 );
+app.use(
+  "/api/webhooks/stripe",
+  express.raw({ type: "application/json", limit: "100kb" }),
+  createStripeWebhookRouter()
+);
 app.use(express.json({ limit: "20kb" }));
 
 app.get("/api/health", (_request, response) => {
@@ -32,9 +41,14 @@ app.get("/api/health", (_request, response) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/products", productsRoutes);
 app.use("/api/cart", cartRoutes);
+app.use("/api/checkout", createCheckoutRouter());
 
 app.use((error, _request, response, _next) => {
   console.error("Unhandled API error:", error);
+  if (error.statusCode === 503) {
+    response.status(503).json({ message: error.message });
+    return;
+  }
   response.status(500).json({ message: "Internal server error" });
 });
 

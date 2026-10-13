@@ -7,9 +7,7 @@ import { allowRoles, requireAuth } from "../middleware/auth.js";
 const router = Router();
 
 const cartItemValidation = [
-  body("productId")
-    .notEmpty()
-    .withMessage("Product ID is required"),
+  body("productId").notEmpty().withMessage("Product ID is required"),
   body("quantity")
     .isInt({ min: 1, max: 99 })
     .withMessage("Quantity must be between 1 and 99")
@@ -18,7 +16,9 @@ const cartItemValidation = [
 function sendValidationErrors(request, response) {
   const errors = validationResult(request);
   if (!errors.isEmpty()) {
-    response.status(400).json({ errors: errors.array({ onlyFirstError: true }) });
+    response
+      .status(400)
+      .json({ errors: errors.array({ onlyFirstError: true }) });
     return true;
   }
   return false;
@@ -72,11 +72,6 @@ router.post(
         return;
       }
 
-      if (product.stock < quantity) {
-        response.status(409).json({ message: "Not enough stock available" });
-        return;
-      }
-
       let cart = await Cart.findOne({ buyer: request.auth.id });
       if (!cart) {
         cart = new Cart({ buyer: request.auth.id, items: [] });
@@ -85,6 +80,13 @@ router.post(
       const itemIndex = cart.items.findIndex(
         (item) => item.product.toString() === productId
       );
+      const requestedTotal =
+        quantity + (itemIndex >= 0 ? cart.items[itemIndex].quantity : 0);
+
+      if (requestedTotal > product.stock || requestedTotal > 99) {
+        response.status(409).json({ message: "Not enough stock available" });
+        return;
+      }
 
       if (itemIndex >= 0) {
         cart.items[itemIndex].quantity += quantity;
@@ -93,7 +95,9 @@ router.post(
       }
 
       await cart.save();
-      const updatedCart = await Cart.findOne({ buyer: request.auth.id }).populate({
+      const updatedCart = await Cart.findOne({
+        buyer: request.auth.id
+      }).populate({
         path: "items.product",
         select: "name priceCents imageUrl category stock vendor"
       });
@@ -154,7 +158,9 @@ router.patch(
       cart.items[itemIndex].quantity = request.body.quantity;
       await cart.save();
 
-      const updatedCart = await Cart.findOne({ buyer: request.auth.id }).populate({
+      const updatedCart = await Cart.findOne({
+        buyer: request.auth.id
+      }).populate({
         path: "items.product",
         select: "name priceCents imageUrl category stock vendor"
       });
@@ -194,7 +200,9 @@ router.delete(
 
       await cart.save();
 
-      const updatedCart = await Cart.findOne({ buyer: request.auth.id }).populate({
+      const updatedCart = await Cart.findOne({
+        buyer: request.auth.id
+      }).populate({
         path: "items.product",
         select: "name priceCents imageUrl category stock vendor"
       });

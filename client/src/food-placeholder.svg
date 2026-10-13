@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 480" role="img" aria-label="DishDash food image placeholder">
+  <rect width="640" height="480" fill="#fff1e6"/>
+  <circle cx="320" cy="240" r="132" fill="#fed7aa"/>
+  <circle cx="320" cy="240" r="105" fill="#fffaf5"/>
+  <path d="M238 270c14-56 48-91 82-91s68 35 82 91c-20 29-48 45-82 45s-62-16-82-45Z" fill="#fb923c"/>
+  <circle cx="289" cy="238" r="12" fill="#65a30d"/>
+  <circle cx="344" cy="222" r="13" fill="#dc2626"/>
+  <circle cx="365" cy="261" r="10" fill="#65a30d"/>
+  <path d="M200 367h240" stroke="#fdba74" stroke-linecap="round" stroke-width="10"/>
+  <text x="320" y="414" fill="#9a3412" font-family="Arial,sans-serif" font-size="23" font-weight="700" text-anchor="middle">Fresh from your neighborhood</text>
+</svg>

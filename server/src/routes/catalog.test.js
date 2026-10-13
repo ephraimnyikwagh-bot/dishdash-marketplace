@@ -11,13 +11,15 @@ describe("catalog and cart routes", () => {
 
   beforeAll(async () => {
     process.env.JWT_SECRET = "test-secret-with-at-least-thirty-two-characters";
-    mongoServer = await MongoMemoryServer.create();
+    mongoServer = await MongoMemoryServer.create({
+      instance: { launchTimeout: 30000 }
+    });
     await mongoose.connect(mongoServer.getUri("food_marketplace_test"));
-  });
+  }, 60000);
 
   afterAll(async () => {
     await mongoose.disconnect();
-    await mongoServer.stop();
+    if (mongoServer) await mongoServer.stop();
   });
 
   beforeEach(async () => {
@@ -148,6 +150,13 @@ describe("catalog and cart routes", () => {
 
     expect(addResponse.status).toBe(201);
     expect(addResponse.body.item.quantity).toBe(2);
+
+    const exceedsStockResponse = await request(app)
+      .post("/api/cart/items")
+      .set("Authorization", buyerToken)
+      .send({ productId: String(product._id), quantity: 11 });
+
+    expect(exceedsStockResponse.status).toBe(409);
 
     const updateResponse = await request(app)
       .patch(`/api/cart/items/${product._id}`)
