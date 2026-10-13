@@ -2,6 +2,8 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import authRoutes from "./routes/auth.js";
+import productsRoutes from "./routes/products.js";
+import cartRoutes from "./routes/cart.js";
 
 const app = express();
 
@@ -28,6 +30,8 @@ app.get("/api/health", (_request, response) => {
 });
 
 app.use("/api/auth", authRoutes);
+app.use("/api/products", productsRoutes);
+app.use("/api/cart", cartRoutes);
 
 app.use((error, _request, response, _next) => {
   console.error("Unhandled API error:", error);
