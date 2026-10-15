@@ -5,7 +5,9 @@ import Order from "../models/Order.js";
 import OrderItem from "../models/OrderItem.js";
 import Payment from "../models/Payment.js";
 import Product from "../models/Product.js";
+import User from "../models/User.js";
 import WebhookEvent from "../models/WebhookEvent.js";
+import { createPaymentProvider } from "./payments/index.js";
 
 export class CheckoutError extends Error {
   constructor(statusCode, message) {
@@ -22,76 +24,34 @@ function getPlatformFeeBps() {
   return fee;
 }
 
-function createCheckoutKey(buyerId, clientKey) {
-  return `${buyerId}:${clientKey}`;
+function checkoutKey(buyerId, key) {
+  return `${buyerId}:${key}`;
 }
 
-async function createOrRetrieveIntent({ order, payment, gateway }) {
-  const intent = payment.providerIntentId
-    ? await gateway.retrievePaymentIntent(payment.providerIntentId)
-    : await gateway.createPaymentIntent({
-        amountCents: payment.amountCents,
-        currency: payment.currency.toLowerCase(),
-        idempotencyKey: `dishdash:${payment.idempotencyKey}`,
-        metadata: {
-          orderId: String(order._id),
-          buyerId: String(order.buyer)
-        }
-      });
-
-  if (!intent?.id || !intent.client_secret) {
-    throw new Error("Stripe did not return a PaymentIntent client secret");
-  }
-
-  if (!payment.providerIntentId) {
-    const paymentId = payment._id;
-    payment =
-      (await Payment.findOneAndUpdate(
-        { _id: paymentId, providerIntentId: { $exists: false } },
-        { $set: { providerIntentId: intent.id } },
-        { new: true }
-      )) || (await Payment.findById(paymentId));
-    if (!payment) {
-      throw new Error(
-        "Payment record disappeared while attaching Stripe intent"
-      );
-    }
-  }
-
-  return { order, payment, clientSecret: intent.client_secret };
-}
-
-async function getExistingCheckout({ key, gateway }) {
-  const existing = await Order.findOne({ idempotencyKey: key }).populate(
-    "payment"
-  );
-  if (!existing) return null;
-
-  if (!existing.payment) {
-    throw new Error("Existing checkout is missing its payment record");
-  }
-
-  return createOrRetrieveIntent({
-    order: existing,
-    payment: existing.payment,
-    gateway
-  });
+function checkoutResponse(order, payment, reused) {
+  return {
+    order,
+    payment,
+    reused
+  };
 }
 
 export async function createCheckout({
   buyerId,
   clientIdempotencyKey,
-  gateway,
+  provider = createPaymentProvider(),
   connection = mongoose.connection
 }) {
-  const idempotencyKey = createCheckoutKey(buyerId, clientIdempotencyKey);
-  const existing = await getExistingCheckout({ key: idempotencyKey, gateway });
-  if (existing) return { ...existing, reused: true };
+  const idempotencyKey = checkoutKey(buyerId, clientIdempotencyKey);
+  const existing = await Order.findOne({ idempotencyKey }).populate("payment");
+  if (existing) return checkoutResponse(existing, existing.payment, true);
 
-  const cart = await Cart.findOne({ buyer: buyerId }).populate("items.product");
-  if (!cart?.items.length) {
-    throw new CheckoutError(400, "Your cart is empty");
-  }
+  const [cart, buyer] = await Promise.all([
+    Cart.findOne({ buyer: buyerId }).populate("items.product"),
+    User.findById(buyerId).select("name email")
+  ]);
+  if (!cart?.items.length) throw new CheckoutError(400, "Your cart is empty");
+  if (!buyer) throw new CheckoutError(404, "Buyer account was not found");
 
   const items = cart.items.map((item) => {
     const product = item.product;
@@ -122,7 +82,7 @@ export async function createCheckout({
   }
 
   const subtotalCents = items.reduce(
-    (total, { product, quantity }) => total + product.priceCents * quantity,
+    (sum, { product, quantity }) => sum + product.priceCents * quantity,
     0
   );
   if (!Number.isSafeInteger(subtotalCents) || subtotalCents < 1) {
@@ -132,28 +92,27 @@ export async function createCheckout({
   const platformFeeCents = Number(
     (BigInt(subtotalCents) * BigInt(getPlatformFeeBps())) / 10000n
   );
-  const totalCents = subtotalCents;
   const orderId = new mongoose.Types.ObjectId();
   const paymentId = new mongoose.Types.ObjectId();
-  let session;
-  let checkout;
+  const session = await connection.startSession();
+  let result;
+
   try {
-    session = await connection.startSession();
     await session.withTransaction(
       async () => {
         for (const { product, quantity } of items) {
-          const reserved = await Product.updateOne(
+          const reserved = await Product.findOneAndUpdate(
             {
               _id: product._id,
-              isActive: true,
               vendor: product.vendor,
+              isActive: true,
               priceCents: product.priceCents,
               stock: { $gte: quantity }
             },
             { $inc: { stock: -quantity } },
-            { session }
+            { new: true, session }
           );
-          if (reserved.modifiedCount !== 1) {
+          if (!reserved) {
             throw new CheckoutError(
               409,
               `${product.name} no longer has enough stock`
@@ -170,7 +129,7 @@ export async function createCheckout({
               status: "Pending",
               subtotalCents,
               platformFeeCents,
-              totalCents,
+              totalCents: subtotalCents,
               currency: "USD",
               idempotencyKey
             }
@@ -191,13 +150,25 @@ export async function createCheckout({
           { session, ordered: true }
         );
 
+        const intent = await provider.createIntent({
+          amountCents: subtotalCents,
+          currency: "USD",
+          idempotencyKey,
+          email: buyer.email,
+          name: buyer.name,
+          orderId: String(order._id)
+        });
+        if (!intent?.id) throw new Error("Payment provider returned no reference");
+
         const [payment] = await Payment.create(
           [
             {
               _id: paymentId,
               order: order._id,
-              provider: "stripe",
-              amountCents: totalCents,
+              provider: provider.name,
+              providerReference: intent.id,
+              paymentUrl: intent.paymentUrl || null,
+              amountCents: subtotalCents,
               currency: "USD",
               status: "pending",
               idempotencyKey
@@ -205,7 +176,6 @@ export async function createCheckout({
           ],
           { session }
         );
-
         order.payment = payment._id;
         await order.save({ session });
 
@@ -221,7 +191,7 @@ export async function createCheckout({
           );
         }
 
-        checkout = { order, payment };
+        result = checkoutResponse(order, payment, false);
       },
       {
         readConcern: { level: "snapshot" },
@@ -229,147 +199,126 @@ export async function createCheckout({
       }
     );
   } catch (error) {
-    try {
-      const concurrent = await getExistingCheckout({
-        key: idempotencyKey,
-        gateway
-      });
-      if (concurrent) return { ...concurrent, reused: true };
-    } catch (lookupError) {
-      if (error.code === 11000) throw lookupError;
+    if (error.code === 11000) {
+      const concurrent = await Order.findOne({ idempotencyKey }).populate(
+        "payment"
+      );
+      if (concurrent) {
+        return checkoutResponse(concurrent, concurrent.payment, true);
+      }
     }
     throw error;
   } finally {
-    if (session) await session.endSession();
+    await session.endSession();
   }
 
-  const withIntent = await createOrRetrieveIntent({
-    ...checkout,
-    gateway
-  });
-  return { ...withIntent, reused: false };
+  return result;
 }
 
-export async function processStripeEvent({
-  event,
+export async function processPaymentEvent({
+  providerName,
+  eventId,
+  reference,
+  outcome,
   connection = mongoose.connection
 }) {
-  if (
-    event.type !== "payment_intent.succeeded" &&
-    event.type !== "payment_intent.payment_failed" &&
-    event.type !== "payment_intent.canceled"
-  ) {
-    return { ignored: true };
+  if (!["succeeded", "failed", "expired"].includes(outcome)) {
+    throw new CheckoutError(400, "Payment outcome is invalid");
   }
-
-  const intent = event.data?.object;
-  if (!intent?.id)
-    throw new CheckoutError(400, "Webhook has no payment intent");
+  if (!eventId || !reference) {
+    throw new CheckoutError(400, "Payment event ID and reference are required");
+  }
 
   const session = await connection.startSession();
   let duplicate = false;
+
   try {
     await session.withTransaction(
       async () => {
-        const alreadyProcessed = await WebhookEvent.exists({
-          eventId: event.id
-        }).session(session);
-        if (alreadyProcessed) {
+        const prior = await WebhookEvent.findOne({ eventId }).session(session);
+        if (prior) {
           duplicate = true;
           return;
         }
 
         const payment = await Payment.findOne({
-          provider: "stripe",
-          providerIntentId: intent.id
+          provider: providerName,
+          providerReference: reference
         }).session(session);
         if (!payment) {
-          throw new CheckoutError(
-            404,
-            "Payment for this webhook was not found"
-          );
+          throw new CheckoutError(404, "Payment was not found");
         }
-
         const order = await Order.findById(payment.order).session(session);
         if (!order) throw new Error("Payment references a missing order");
 
         await WebhookEvent.create(
-          [{ eventId: event.id, provider: "stripe", type: event.type }],
+          [{ eventId, provider: providerName, type: outcome }],
           { session }
         );
 
-        if (event.type === "payment_intent.succeeded") {
-          if (payment.status === "pending" && order.status === "Pending") {
-            if (intent.amount_received !== payment.amountCents) {
-              throw new CheckoutError(
-                400,
-                "Stripe payment amount does not match the order"
-              );
-            }
+        if (payment.status !== "pending" || order.status !== "Pending") return;
 
-            payment.status = "succeeded";
-            payment.confirmedAt = new Date();
-            await payment.save({ session });
-            order.status = "Paid";
-            await order.save({ session });
-
-            const vendorPayableCents =
-              order.totalCents - order.platformFeeCents;
-            const entries = [
-              {
-                transactionId: intent.id,
-                order: order._id,
-                account: "buyer_clearing",
-                direction: "debit",
-                amountCents: order.totalCents,
-                currency: order.currency,
-                idempotencyKey: `stripe:${intent.id}:buyer-debit`
-              }
-            ];
-
-            if (vendorPayableCents > 0) {
-              entries.push({
-                transactionId: intent.id,
-                order: order._id,
-                account: "vendor_payable",
-                direction: "credit",
-                amountCents: vendorPayableCents,
-                currency: order.currency,
-                idempotencyKey: `stripe:${intent.id}:vendor-credit`
-              });
-            }
-            if (order.platformFeeCents > 0) {
-              entries.push({
-                transactionId: intent.id,
-                order: order._id,
-                account: "platform_revenue",
-                direction: "credit",
-                amountCents: order.platformFeeCents,
-                currency: order.currency,
-                idempotencyKey: `stripe:${intent.id}:platform-credit`
-              });
-            }
-            await LedgerEntry.create(entries, { session, ordered: true });
-          }
-        } else if (
-          event.type === "payment_intent.canceled" &&
-          payment.status === "pending" &&
-          order.status === "Pending"
-        ) {
-          payment.status = "failed";
+        if (outcome === "succeeded") {
+          payment.status = "succeeded";
+          payment.confirmedAt = new Date();
+          order.status = "Paid";
           await payment.save({ session });
-          order.status = "Failed";
           await order.save({ session });
 
-          const orderItems = await OrderItem.find({ order: order._id }).session(
-            session
+          const vendorPayableCents =
+            order.totalCents - order.platformFeeCents;
+          const entries = [
+            {
+              transactionId: String(payment._id),
+              order: order._id,
+              account: "buyer_clearing",
+              direction: "debit",
+              amountCents: order.totalCents,
+              currency: order.currency,
+              idempotencyKey: `${providerName}:${reference}:buyer-debit`
+            }
+          ];
+          if (vendorPayableCents > 0) {
+            entries.push({
+              transactionId: String(payment._id),
+              order: order._id,
+              account: "vendor_payable",
+              direction: "credit",
+              amountCents: vendorPayableCents,
+              currency: order.currency,
+              idempotencyKey: `${providerName}:${reference}:vendor-credit`
+            });
+          }
+          if (order.platformFeeCents > 0) {
+            entries.push({
+              transactionId: String(payment._id),
+              order: order._id,
+              account: "platform_revenue",
+              direction: "credit",
+              amountCents: order.platformFeeCents,
+              currency: order.currency,
+              idempotencyKey: `${providerName}:${reference}:platform-credit`
+            });
+          }
+          await LedgerEntry.create(entries, { session, ordered: true });
+          return;
+        }
+
+        payment.status = "failed";
+        order.status = "Failed";
+        await payment.save({ session });
+        await order.save({ session });
+        const orderItems = await OrderItem.find({ order: order._id }).session(
+          session
+        );
+        for (const item of orderItems) {
+          const restored = await Product.updateOne(
+            { _id: item.product },
+            { $inc: { stock: item.quantity } },
+            { session }
           );
-          for (const item of orderItems) {
-            await Product.updateOne(
-              { _id: item.product },
-              { $inc: { stock: item.quantity } },
-              { session }
-            );
+          if (restored.matchedCount !== 1) {
+            throw new Error(`Could not restore stock for product ${item.product}`);
           }
         }
       },
@@ -388,5 +337,5 @@ export async function processStripeEvent({
     await session.endSession();
   }
 
-  return { ignored: false, duplicate };
+  return { duplicate, ignored: false };
 }

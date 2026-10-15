@@ -10,10 +10,11 @@ const paymentSchema = new mongoose.Schema(
     },
     provider: {
       type: String,
-      enum: ["stripe", "flutterwave"],
+      enum: ["mock", "flutterwave"],
       required: true
     },
-    providerIntentId: { type: String, unique: true, sparse: true },
+    providerReference: { type: String, unique: true, sparse: true },
+    paymentUrl: { type: String, default: null },
     amountCents: {
       type: Number,
       required: true,

@@ -5,7 +5,7 @@ const webhookEventSchema = new mongoose.Schema(
     eventId: { type: String, required: true, unique: true },
     provider: {
       type: String,
-      enum: ["stripe", "flutterwave"],
+      enum: ["mock", "flutterwave"],
       required: true
     },
     type: { type: String, required: true },

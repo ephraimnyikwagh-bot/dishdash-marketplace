@@ -1,31 +1,29 @@
 # DishDash
 
-DishDash is an on-demand food delivery marketplace. This repository currently
-contains the Phase 1 foundation, Phase 2 authentication/RBAC, Phase 3
-catalog/inventory/cart APIs, Phase 4 transactional checkout and sandbox
-payments, and a React client for buyer/vendor flows.
+DishDash is an on-demand food delivery marketplace MVP. It currently includes
+authentication/RBAC, vendor catalog management, buyer carts, transaction-backed
+checkout, mock and Flutterwave TEST payment providers, an idempotent payment
+webhook, a double-entry ledger, order views, and a React SPA for buyers and
+vendors.
 
-## Prerequisites
+## Requirements
 
 - Node.js 20 or newer
-- MongoDB Atlas (replica-set cluster) **or** Docker Desktop for optional local
-  MongoDB
+- MongoDB Atlas replica-set cluster, or Docker Desktop for optional local MongoDB
 
 Docker is optional. The server reads `MONGODB_URI` from `server/.env` and can
-connect directly to an Atlas replica set. MongoDB transactions require a
-replica-set or sharded deployment; the server checks transaction capability at
-startup and logs a warning when it is unavailable or cannot be verified.
+connect directly to Atlas. Multi-document transactions require a replica-set or
+sharded MongoDB deployment; startup logs the connection and warns if transaction
+support cannot be verified.
 
-## Configure and run
+## Setup and run
 
-1. Create `server/.env` using `.env.example` as a guide. Set `MONGODB_URI` to
-   your Atlas connection string, `JWT_SECRET` to a random secret of at least 32
-   characters, and `ADMIN_REGISTRATION_KEY` to a separate random secret. For
-   payments, set Stripe test-mode `STRIPE_SECRET_KEY` and
-   `STRIPE_WEBHOOK_SECRET`.
+1. Copy `.env.example` to `server/.env`. Set `MONGODB_URI`, a random
+   `JWT_SECRET` of at least 32 characters, and a separate
+   `ADMIN_REGISTRATION_KEY`. Defaults to the offline mock payment provider.
 2. In Atlas, allow your development IP and ensure the database user has the
    required read/write permissions.
-3. Start the API:
+3. Install and start the API:
 
    ```powershell
    Set-Location server
@@ -33,11 +31,10 @@ startup and logs a warning when it is unavailable or cannot be verified.
    npm.cmd run dev
    ```
 
-4. Create `client/.env` from `client/.env.example`. Set `VITE_API_URL` to the
-   API base URL, normally `http://localhost:4000/api`, and set
-   `VITE_STRIPE_PUBLISHABLE_KEY` to the Stripe test-mode publishable key. The
-   server's `CLIENT_ORIGIN` should include `http://localhost:5173`.
-5. In a second terminal, start the client:
+4. Copy `client/.env.example` to `client/.env`. Set `VITE_API_URL` to
+   `http://localhost:4000/api`; ensure `CLIENT_ORIGIN` in `server/.env` includes
+   `http://localhost:5173`.
+5. Install and start the SPA in a second terminal:
 
    ```powershell
    Set-Location client
@@ -45,129 +42,166 @@ startup and logs a warning when it is unavailable or cannot be verified.
    npm.cmd run dev
    ```
 
-   The buyer and vendor UI runs at `http://localhost:5173`; the API health check is
+   Open `http://localhost:5173`. The API health endpoint is
    `http://localhost:4000/api/health`.
 
-### Optional local MongoDB
+## Demo data
 
-For local development instead of Atlas, run the single-node replica set:
+After configuring `server/.env` and starting MongoDB, seed the demo accounts
+and menu from a PowerShell terminal:
+
+```powershell
+Set-Location server
+npm.cmd run seed
+```
+
+The command is safe to repeat: it updates the four demo users and upserts the
+ten menu items without creating duplicates. It refuses to run when
+`NODE_ENV=production`.
+
+All demo accounts share the password `DishDashDemo2026!`:
+
+| Role | Email |
+| --- | --- |
+| Buyer | `buyer@dishdash.demo` |
+| Vendor | `vendor@dishdash.demo` |
+| Courier | `courier@dishdash.demo` |
+| Admin | `admin@dishdash.demo` |
+
+### Optional local MongoDB replica set
+
+Docker Compose is only an optional local convenience:
 
 ```powershell
 docker compose up -d mongo
 ```
 
 Use `MONGODB_URI=mongodb://localhost:27017/food_marketplace?replicaSet=rs0`
-in `server/.env`. Shut it down with `docker compose down`; add `-v` only if you
-intend to remove its persisted local database volume.
+in `server/.env`. Stop the service with `docker compose down`; add `-v` only if
+you intend to remove the persisted local database volume.
 
 ## Environment variables
 
-| Variable                      | Purpose                                                 |
-| ----------------------------- | ------------------------------------------------------- |
-| `NODE_ENV`                    | Runtime environment                                     |
-| `PORT`                        | API port (default `4000`)                               |
-| `CLIENT_ORIGIN`               | Comma-separated allowed browser origins                 |
-| `MONGODB_URI`                 | MongoDB Atlas or local replica-set connection string    |
-| `JWT_SECRET`                  | Random signing key, at least 32 characters              |
-| `JWT_EXPIRES_IN`              | JWT lifetime, for example `1d`                          |
-| `ADMIN_REGISTRATION_KEY`      | Secret required to register an admin account            |
-| `STRIPE_SECRET_KEY`           | Stripe test-mode secret key (`sk_test_...`)             |
-| `STRIPE_WEBHOOK_SECRET`       | Signing secret from Stripe CLI or test webhook endpoint |
-| `PLATFORM_FEE_BPS`            | Platform fee in basis points (default `1000`, i.e. 10%) |
-| `VITE_API_URL`                | Client API base URL in `client/.env`                    |
-| `VITE_STRIPE_PUBLISHABLE_KEY` | Stripe test-mode publishable key in `client/.env`       |
+| Variable | Purpose |
+| --- | --- |
+| `NODE_ENV` | Runtime environment; mock simulations and Flutterwave are disabled in production |
+| `PORT` | API port (default `4000`) |
+| `CLIENT_ORIGIN` | Comma-separated allowed browser origins |
+| `MONGODB_URI` | MongoDB Atlas or local replica-set connection string |
+| `JWT_SECRET` | Random JWT signing secret, at least 32 characters |
+| `JWT_EXPIRES_IN` | JWT lifetime (default `7d`) |
+| `ADMIN_REGISTRATION_KEY` | Separate secret required for admin registration |
+| `PAYMENT_PROVIDER` | `mock` (default) or `flutterwave` |
+| `FLW_SECRET_KEY` | Flutterwave TEST secret key; required only for Flutterwave |
+| `FLW_PUBLIC_KEY` | Flutterwave TEST public key; required only for Flutterwave |
+| `FLW_WEBHOOK_HASH` | Flutterwave webhook verification hash |
+| `FLW_BASE_URL` | Optional; if set, must be `https://api.flutterwave.com/v3` |
+| `FLW_REDIRECT_URL` | Optional hosted-payment redirect destination; defaults to the client return page |
+| `PLATFORM_FEE_BPS` | Platform fee in basis points (default `1000`, 10%) |
+| `VITE_API_URL` | Client API base URL, normally `http://localhost:4000/api` |
 
-Never commit `.env` files or put payment card details in application storage.
+Never commit any `.env` file. Card details are collected only by Flutterwave's
+hosted checkout and are never stored by DishDash.
 
-## Authentication API (Phase 2)
+## Authentication and roles
 
-All routes are prefixed with `/api`.
+All API routes below are prefixed with `/api`.
 
-| Method | Endpoint         | Access               | Description                                            |
-| ------ | ---------------- | -------------------- | ------------------------------------------------------ |
-| `POST` | `/auth/register` | Public, rate limited | Register a buyer, vendor, courier, or authorized admin |
-| `POST` | `/auth/login`    | Public, rate limited | Verify credentials and receive a JWT                   |
-| `GET`  | `/auth/me`       | Bearer JWT           | Return the authenticated user's public profile         |
-| `GET`  | `/health`        | Public               | API health check                                       |
+| Method | Endpoint | Access | Description |
+| --- | --- | --- | --- |
+| `POST` | `/auth/register` | Public, rate limited | Register buyer/vendor/courier, or admin with the registration key |
+| `POST` | `/auth/login` | Public, rate limited | Authenticate and receive a JWT |
+| `GET` | `/auth/me` | Authenticated | Return the signed-in user's public profile |
+| `GET` | `/health` | Public | API health check |
 
-Registration accepts `name`, `email`, `password`, and optional `role` (defaults
-to `buyer`). Registering as `admin` additionally requires
-`adminRegistrationKey` matching the server's `ADMIN_REGISTRATION_KEY`. Passwords
-are bcrypt-hashed; API responses never return password hashes. Login returns
-the JWT as `token`. Send protected requests with
-`Authorization: Bearer <token>`.
+Registration takes `name`, `email`, `password`, and optional `role` (defaults
+to `buyer`). Admin registration also requires `adminRegistrationKey`. Passwords
+are bcrypt-hashed. Send `Authorization: Bearer <token>` on protected requests.
 
-Role authorization middleware is available for subsequent protected API
-routes: `requireAuth` authenticates the bearer token and `allowRoles("vendor")`
-(or another role list) restricts access. Authentication and authorization
-failures return HTTP 401 and 403 respectively.
+## Catalog, cart, and orders
 
-## Catalog and cart API (Phase 3)
+| Method | Endpoint | Access | Description |
+| --- | --- | --- | --- |
+| `GET` | `/products?q=wrap&page=1&limit=12` | Authenticated | Search and paginate active products |
+| `GET` | `/products/:productId` | Authenticated | Read an active product |
+| `GET` | `/products/mine` | Vendor | List own products |
+| `POST` | `/products` | Vendor | Create a product |
+| `PATCH` | `/products/:productId` | Owning vendor | Update product and inventory |
+| `DELETE` | `/products/:productId` | Owning vendor | Deactivate/remove a product |
+| `GET` | `/cart` | Buyer | Read cart and total in integer cents |
+| `POST` | `/cart/items` | Buyer | Add `{ "productId": "...", "quantity": 1 }` |
+| `PATCH` | `/cart/items/:productId` | Buyer | Set quantity |
+| `DELETE` | `/cart/items/:productId` | Buyer | Remove a cart item |
+| `POST` | `/checkout` | Buyer | Reserve inventory and create an order/payment |
+| `GET` | `/orders?page=1&limit=10` | Buyer/vendor/admin | List own, related, or all orders, respectively |
+| `GET` | `/orders/:orderId` | Buyer/vendor/admin | Read an accessible order and its items |
 
-The client signs in buyers and vendors and routes each role to its workspace.
-Buyers can browse/search the catalog, add products to their cart, edit
-quantities, remove items, and pay through the Stripe test-mode Payment Element.
-Vendors can create, update, and remove products and manage stock.
+Product prices and all order/ledger money values are integer cents. Product and
+order listing endpoints are paginated. Checkout currently requires all items
+in the cart to belong to the same vendor.
 
-| Method   | Endpoint                           | Access           | Description                                                      |
-| -------- | ---------------------------------- | ---------------- | ---------------------------------------------------------------- |
-| `GET`    | `/products?q=wrap&page=1&limit=12` | Authenticated    | Search and paginate active products                              |
-| `GET`    | `/products/:productId`             | Authenticated    | View an active product                                           |
-| `GET`    | `/products/mine`                   | Vendor           | List own active products                                         |
-| `POST`   | `/products`                        | Vendor           | Create a menu product                                            |
-| `PATCH`  | `/products/:productId`             | Owning vendor    | Update product fields and stock                                  |
-| `DELETE` | `/products/:productId`             | Owning vendor    | Remove product from the catalog                                  |
-| `GET`    | `/cart`                            | Buyer            | Read cart and total in cents                                     |
-| `POST`   | `/cart/items`                      | Buyer            | Add product with `productId` and `quantity`                      |
-| `PATCH`  | `/cart/items/:productId`           | Buyer            | Set item quantity                                                |
-| `DELETE` | `/cart/items/:productId`           | Buyer            | Remove item                                                      |
-| `POST`   | `/checkout`                        | Buyer            | Create an idempotent transaction-backed order and payment intent |
-| `POST`   | `/webhooks/stripe`                 | Stripe signature | Confirm payment, balance ledger, or restore stock on failure     |
+## Mock checkout (default, no keys)
 
-Product prices use integer cents, and stock/quantities are whole numbers.
-Catalog pagination accepts `page` and `limit` (maximum 50); `q` searches product
-names. The API base URL for the Vite app is configured with `VITE_API_URL` in
-`client/.env`.
+With `PAYMENT_PROVIDER=mock` (or unset), the browser flow is:
 
-## Checkout and sandbox payments (Phase 4)
+1. Log in as a buyer, add a product to the cart, and click **Checkout**.
+2. On the payment page, click **Simulate success** or **Simulate failure**.
+3. Check the resulting order under **Orders**.
 
-`POST /api/checkout` is buyer-only. Provide a unique `Idempotency-Key` request
-header for a cart checkout. The server validates that products are active and
-from one vendor, then reserves stock, snapshots order items, creates the pending
-order/payment record, and clears the cart in one MongoDB transaction. Only after
-that transaction commits does it create a Stripe PaymentIntent with a matching
-Stripe idempotency key and attach its ID to the payment record. If Stripe is
-temporarily unavailable, retrying the same checkout key resumes the committed
-order without decrementing stock a second time. The response contains an order,
-payment summary, and Stripe `clientSecret`; card data is entered through Stripe
-Elements and is never handled or stored by the application.
+Simulation is development-only; the API does not expose it when
+`NODE_ENV=production`. No card details are requested or stored. On success, the
+payment and order are marked paid and balanced ledger entries are written in a
+MongoDB transaction. On failure/expiry, the order is marked failed and reserved
+stock is restored.
 
-After the buyer confirms the sandbox payment, Stripe sends the
-`payment_intent.succeeded` event to `POST /api/webhooks/stripe`. A valid
-signature is required. The handler idempotently marks the order Paid and writes
-balanced ledger lines in one transaction: buyer-clearing debit, vendor-payable
-credit, and platform-revenue credit when the fee is nonzero. A
-`payment_intent.payment_failed` event records the failed attempt but keeps the
-PaymentIntent and stock reservation retryable. When Stripe reports
-`payment_intent.canceled`, the server marks the order Failed and restores its
-reserved stock. Never expose `STRIPE_SECRET_KEY` or
-`STRIPE_WEBHOOK_SECRET` to the browser.
+## Flutterwave TEST checkout
 
-For local Stripe CLI testing, start the server and run:
+Set `PAYMENT_PROVIDER=flutterwave` and provide only Flutterwave TEST credentials
+in `server/.env`:
 
-```powershell
-stripe listen --forward-to localhost:4000/api/webhooks/stripe
+```text
+FLW_SECRET_KEY=FLWSECK_TEST-...
+FLW_PUBLIC_KEY=FLWPUBK_TEST-...
+FLW_WEBHOOK_HASH=...
+FLW_BASE_URL=https://api.flutterwave.com/v3
+FLW_REDIRECT_URL=http://localhost:5173/payment/return
 ```
 
-Copy the CLI's `whsec_...` signing secret into `server/.env`, then restart the
-API. Register/login as a buyer, add an in-stock product to the cart, and choose
-**Continue to payment**. Use a Stripe test card such as `4242 4242 4242 4242`,
-any future expiry, any CVC, and any postal code. The order stays Pending until
-the signed success webhook arrives. Stripe CLI can also trigger failure events
-for testing. The browser persists only the checkout idempotency key to resume
-pending checkout; payment card data is handled directly by Stripe Elements.
+Restart the API, then use the same buyer checkout flow. The payment page sends
+the buyer to Flutterwave's hosted test checkout. The API verifies the
+`verif-hash` webhook header and independently verifies the transaction amount,
+currency, and reference with Flutterwave before updating the order or ledger.
+Flutterwave mode is restricted to non-production and rejects live-mode keys.
+Do not expose any `FLW_*` secret to the client.
 
-## Checks
+## Checkout and ledger guarantees
+
+`POST /api/checkout` requires an `Idempotency-Key` header (8-128 characters).
+The key is scoped to the buyer. The server validates current product state and
+price, conditionally decrements stock within a MongoDB session transaction,
+creates the order/items/payment intent, and clears the cart. An unavailable
+payment provider aborts the database transaction. A unique order key prevents
+retries from reserving inventory twice; providers receive a stable idempotency
+reference.
+
+Payment notifications are processed at `POST /api/payments/webhook`. Duplicate
+event IDs are ignored, and terminal order/payment checks prevent duplicate
+ledger writes. Successful payment creates balanced debit/credit lines for buyer
+clearing, vendor payable, and (when nonzero) platform revenue. All ledger
+entries are integer cents.
+
+| Method | Endpoint | Access | Description |
+| --- | --- | --- | --- |
+| `POST` | `/checkout` | Buyer | Start checkout; requires `Idempotency-Key` |
+| `GET` | `/payments/:paymentId` | Owning buyer | Read payment status/details |
+| `POST` | `/payments/:paymentId/simulate` | Owning buyer, development mock only | Simulate `succeeded`, `failed`, or `expired` |
+| `POST` | `/payments/webhook` | Flutterwave signature | Verify Flutterwave event and process payment |
+| `GET` | `/ledger/integrity` | Admin | Check debit/credit totals per currency |
+
+The mock simulation route is for local demos, not a production webhook
+substitute. Flutterwave's webhook is the externally verified payment flow.
+
+## Tests, lint, and build
 
 ```powershell
 Set-Location server
@@ -179,7 +213,7 @@ npm.cmd run lint
 npm.cmd run build
 ```
 
-Backend tests include auth/RBAC, catalog/cart, and checkout/payment/ledger flows.
-Checkout tests run against a disposable MongoDB replica set and use a fake
-gateway; they do not contact Stripe. Real webhook testing requires Stripe CLI
-and test-mode keys as described above.
+Backend integration tests use a disposable MongoDB replica set and cover
+authentication/RBAC, catalog/cart behavior, checkout success and rollback,
+parallel last-item purchases, checkout idempotency, webhook idempotency, order
+access control, and ledger balancing. Tests do not contact Flutterwave.

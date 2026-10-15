@@ -4,10 +4,10 @@ import helmet from "helmet";
 import authRoutes from "./routes/auth.js";
 import productsRoutes from "./routes/products.js";
 import cartRoutes from "./routes/cart.js";
-import {
-  createCheckoutRouter,
-  createStripeWebhookRouter
-} from "./routes/checkout.js";
+import { createCheckoutRouter } from "./routes/checkout.js";
+import { createPaymentsRouter } from "./routes/payments.js";
+import ordersRoutes from "./routes/orders.js";
+import ledgerRoutes from "./routes/ledger.js";
 
 const app = express();
 
@@ -27,11 +27,6 @@ app.use(
     }
   })
 );
-app.use(
-  "/api/webhooks/stripe",
-  express.raw({ type: "application/json", limit: "100kb" }),
-  createStripeWebhookRouter()
-);
 app.use(express.json({ limit: "20kb" }));
 
 app.get("/api/health", (_request, response) => {
@@ -42,6 +37,9 @@ app.use("/api/auth", authRoutes);
 app.use("/api/products", productsRoutes);
 app.use("/api/cart", cartRoutes);
 app.use("/api/checkout", createCheckoutRouter());
+app.use("/api/payments", createPaymentsRouter());
+app.use("/api/orders", ordersRoutes);
+app.use("/api/ledger", ledgerRoutes);
 
 app.use((error, _request, response, _next) => {
   console.error("Unhandled API error:", error);

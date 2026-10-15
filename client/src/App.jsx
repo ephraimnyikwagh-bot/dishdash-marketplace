@@ -15,6 +15,9 @@ import { LoginPage, RegisterPage } from "./pages/AuthPages.jsx";
 import CatalogPage from "./pages/CatalogPage.jsx";
 import CartPage from "./pages/CartPage.jsx";
 import VendorDashboardPage from "./pages/VendorDashboardPage.jsx";
+import PaymentPage, { PaymentReturnPage } from "./pages/PaymentPage.jsx";
+import OrdersPage from "./pages/OrdersPage.jsx";
+import OrderDetailPage from "./pages/OrderDetailPage.jsx";
 
 function Spinner({ label = "Loading..." }) {
   return (
@@ -77,6 +80,9 @@ function Navbar() {
               <Link className="nav-link" to="/catalog">
                 Menu
               </Link>
+              <Link className="nav-link" to="/orders">
+                Orders
+              </Link>
               <Link
                 aria-label={`Cart, ${count} items`}
                 className="relative rounded-xl p-2 text-slate-700 hover:bg-orange-50"
@@ -105,9 +111,14 @@ function Navbar() {
             </>
           )}
           {user?.role === "vendor" && (
-            <Link className="nav-link" to="/vendor">
-              My kitchen
-            </Link>
+            <>
+              <Link className="nav-link" to="/vendor">
+                My kitchen
+              </Link>
+              <Link className="nav-link" to="/orders">
+                Incoming orders
+              </Link>
+            </>
           )}
           <span className="hidden max-w-32 truncate text-sm text-slate-500 md:block">
             {user?.name}
@@ -152,9 +163,15 @@ function AppFrame() {
         <Route element={<Guard roles={["buyer"]} />}>
           <Route path="/catalog" element={<CatalogPage />} />
           <Route path="/cart" element={<CartPage />} />
+          <Route path="/payment/return" element={<PaymentReturnPage />} />
+          <Route path="/payment/:paymentId" element={<PaymentPage />} />
+          <Route path="/orders" element={<OrdersPage />} />
+          <Route path="/orders/:orderId" element={<OrderDetailPage />} />
         </Route>
         <Route element={<Guard roles={["vendor"]} />}>
           <Route path="/vendor" element={<VendorDashboardPage />} />
+          <Route path="/orders" element={<OrdersPage />} />
+          <Route path="/orders/:orderId" element={<OrderDetailPage />} />
         </Route>
         <Route path="*" element={<RoleHome role={user?.role} />} />
       </Routes>

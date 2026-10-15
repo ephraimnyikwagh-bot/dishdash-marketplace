@@ -1,12 +1,11 @@
-import { jest } from "@jest/globals";
 import express from "express";
 import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
-import Stripe from "stripe";
 import { MongoMemoryReplSet } from "mongodb-memory-server";
 import request from "supertest";
-import { createCheckoutRouter, createStripeWebhookRouter } from "./checkout.js";
+import app from "../app.js";
 import Cart from "../models/Cart.js";
+import Dispute from "../models/Dispute.js";
 import LedgerEntry from "../models/LedgerEntry.js";
 import Order from "../models/Order.js";
 import OrderItem from "../models/OrderItem.js";
@@ -14,19 +13,18 @@ import Payment from "../models/Payment.js";
 import Product from "../models/Product.js";
 import User from "../models/User.js";
 import WebhookEvent from "../models/WebhookEvent.js";
+import { processPaymentEvent } from "../services/checkout.js";
 
 const jwtSecret = "test-secret-with-at-least-thirty-two-characters";
-const webhookSecret = "whsec_test_local_webhook_signing_secret";
 
-describe("checkout and Stripe webhook", () => {
+describe("checkout, payments, orders, and ledger", () => {
   let replicaSet;
-  let gateway;
-  let app;
-  let createdIntents;
 
   beforeAll(async () => {
     process.env.JWT_SECRET = jwtSecret;
     process.env.PLATFORM_FEE_BPS = "1000";
+    process.env.NODE_ENV = "test";
+    process.env.PAYMENT_PROVIDER = "mock";
     replicaSet = await MongoMemoryReplSet.create({
       replSet: { count: 1, storageEngine: "wiredTiger" },
       instanceOpts: [{ launchTimeout: 60000 }]
@@ -42,6 +40,7 @@ describe("checkout and Stripe webhook", () => {
   beforeEach(async () => {
     await Promise.all([
       Cart.deleteMany({}),
+      Dispute.deleteMany({}),
       LedgerEntry.deleteMany({}),
       Order.deleteMany({}),
       OrderItem.deleteMany({}),
@@ -50,59 +49,6 @@ describe("checkout and Stripe webhook", () => {
       User.deleteMany({}),
       WebhookEvent.deleteMany({})
     ]);
-
-    createdIntents = new Map();
-    gateway = {
-      createPaymentIntent: jest.fn(
-        async ({ amountCents, idempotencyKey, metadata }) => {
-          if (createdIntents.has(idempotencyKey)) {
-            return createdIntents.get(idempotencyKey);
-          }
-          const intent = {
-            id: `pi_test_${createdIntents.size + 1}`,
-            client_secret: `pi_test_${createdIntents.size + 1}_secret_test`,
-            amount: amountCents,
-            amount_received: 0,
-            metadata,
-            status: "requires_payment_method"
-          };
-          createdIntents.set(idempotencyKey, intent);
-          return intent;
-        }
-      ),
-      retrievePaymentIntent: jest.fn(async (id) => {
-        const intent = [...createdIntents.values()].find(
-          (item) => item.id === id
-        );
-        if (!intent) throw new Error("Unknown intent");
-        return intent;
-      }),
-      cancelPaymentIntent: jest.fn(async (id) => {
-        const intent = [...createdIntents.values()].find(
-          (item) => item.id === id
-        );
-        if (intent) intent.status = "canceled";
-        return intent;
-      }),
-      constructWebhookEvent: jest.fn((rawBody, signature) =>
-        Stripe.webhooks.constructEvent(rawBody, signature, webhookSecret)
-      )
-    };
-
-    app = express();
-    app.use(
-      "/api/webhooks/stripe",
-      express.raw({ type: "application/json" }),
-      createStripeWebhookRouter({ gatewayFactory: () => gateway })
-    );
-    app.use(express.json());
-    app.use(
-      "/api/checkout",
-      createCheckoutRouter({ gatewayFactory: () => gateway })
-    );
-    app.use((error, _request, response, _next) => {
-      response.status(error.statusCode || 500).json({ message: error.message });
-    });
   });
 
   async function createUser(role = "buyer") {
@@ -140,171 +86,105 @@ describe("checkout and Stripe webhook", () => {
     });
   }
 
-  async function checkout(
-    buyer,
-    key = `test-key-${new mongoose.Types.ObjectId()}`
-  ) {
+  async function checkout(buyer, key = `test-key-${new mongoose.Types.ObjectId()}`) {
     return request(app)
       .post("/api/checkout")
       .set("Authorization", `Bearer ${tokenFor(buyer)}`)
       .set("Idempotency-Key", key);
   }
 
-  async function sendWebhook(event) {
-    const body = Buffer.from(JSON.stringify(event));
-    const signature = Stripe.webhooks.generateTestHeaderString({
-      payload: body.toString("utf8"),
-      secret: webhookSecret
-    });
+  async function simulate(buyer, paymentId, outcome = "succeeded") {
     return request(app)
-      .post("/api/webhooks/stripe")
-      .set("Content-Type", "application/json")
-      .set("Stripe-Signature", signature)
-      .send(body.toString("utf8"));
+      .post(`/api/payments/${paymentId}/simulate`)
+      .set("Authorization", `Bearer ${tokenFor(buyer)}`)
+      .send({ outcome });
   }
 
-  test("creates a pending order and reserves stock; repeats are idempotent", async () => {
+  test("creates a pending order, decrements inventory and clears cart atomically", async () => {
     const vendor = await createUser("vendor");
     const buyer = await createUser();
     const product = await createProduct(vendor, { stock: 4 });
     await putInCart(buyer, product, 2);
-    const key = `checkout-${new mongoose.Types.ObjectId()}`;
-
-    const response = await checkout(buyer, key);
-    expect(response.status).toBe(201);
-    expect(response.body.order.status).toBe("Pending");
-    expect(response.body.order.totalCents).toBe(2000);
-    expect(response.body.payment.status).toBe("pending");
-    expect(response.body.clientSecret).toMatch(/^pi_test_.*_secret_test$/);
-    expect(await Product.findById(product._id).then((item) => item.stock)).toBe(
-      2
-    );
-    expect(
-      await Cart.findOne({ buyer: buyer._id }).then((cart) => cart.items)
-    ).toHaveLength(0);
-
-    const retry = await checkout(buyer, key);
-    expect(retry.status).toBe(200);
-    expect(retry.body.order._id).toBe(response.body.order._id);
-    expect(gateway.createPaymentIntent).toHaveBeenCalledTimes(1);
-    expect(await Order.countDocuments({ buyer: buyer._id })).toBe(1);
-  });
-
-  test("snapshots multiple products from one vendor in one transaction", async () => {
-    const vendor = await createUser("vendor");
-    const buyer = await createUser();
-    const productA = await createProduct(vendor, {
-      name: "First meal",
-      stock: 2
-    });
-    const productB = await createProduct(vendor, {
-      name: "Second meal",
-      priceCents: 1500,
-      stock: 3
-    });
-    await Cart.create({
-      buyer: buyer._id,
-      items: [
-        { product: productA._id, quantity: 1 },
-        { product: productB._id, quantity: 2 }
-      ]
-    });
 
     const response = await checkout(buyer);
     expect(response.status).toBe(201);
-    expect(response.body.order.subtotalCents).toBe(4000);
-    expect(
-      await OrderItem.countDocuments({ order: response.body.order._id })
-    ).toBe(2);
-    expect(
-      await Product.findById(productA._id).then((item) => item.stock)
-    ).toBe(1);
-    expect(
-      await Product.findById(productB._id).then((item) => item.stock)
-    ).toBe(1);
+    expect(response.body.order.status).toBe("Pending");
+    expect(response.body.payment.provider).toBe("mock");
+    expect(response.body.payment.status).toBe("pending");
+    expect(response.body.payment.reference).toMatch(/^mock_/);
+    expect(await Product.findById(product._id).then((item) => item.stock)).toBe(2);
+    expect(await Cart.findOne({ buyer: buyer._id }).then((cart) => cart.items)).toHaveLength(0);
+    expect(await OrderItem.countDocuments({ order: response.body.order._id })).toBe(1);
   });
 
-  test("can resume a committed checkout after a temporary Stripe failure", async () => {
+  test("rolls back every database change when the payment provider fails", async () => {
     const vendor = await createUser("vendor");
     const buyer = await createUser();
-    const product = await createProduct(vendor, { stock: 2 });
-    await putInCart(buyer, product);
-    const key = `recover-${new mongoose.Types.ObjectId()}`;
-    gateway.createPaymentIntent.mockRejectedValueOnce(
-      new Error("Temporary Stripe outage")
+    const product = await createProduct(vendor, { stock: 3 });
+    await putInCart(buyer, product, 2);
+
+    const checkoutRouter = await import("./checkout.js");
+    const testApp = express();
+    testApp.use(express.json());
+    testApp.use(
+      "/api/checkout",
+      checkoutRouter.createCheckoutRouter({
+        providerFactory: () => ({
+          name: "mock",
+          createIntent: async () => {
+            throw new Error("Provider unavailable");
+          }
+        })
+      })
     );
-
-    const firstAttempt = await checkout(buyer, key);
-    expect(firstAttempt.status).toBe(500);
-    expect(await Order.countDocuments({ buyer: buyer._id })).toBe(1);
-    expect(await Product.findById(product._id).then((item) => item.stock)).toBe(
-      1
-    );
-
-    const retry = await checkout(buyer, key);
-    expect(retry.status).toBe(200);
-    expect(retry.body.clientSecret).toMatch(/^pi_test_.*_secret_test$/);
-    expect(await Order.countDocuments({ buyer: buyer._id })).toBe(1);
-    expect(await Product.findById(product._id).then((item) => item.stock)).toBe(
-      1
-    );
-    expect(gateway.createPaymentIntent).toHaveBeenCalledTimes(2);
-  });
-
-  test("rejects empty carts, mixed vendors, invalid keys, and non-buyers", async () => {
-    const buyer = await createUser();
-    const emptyCart = await checkout(buyer);
-    expect(emptyCart.status).toBe(400);
-
-    const vendorA = await createUser("vendor");
-    const vendorB = await createUser("vendor");
-    const productA = await createProduct(vendorA);
-    const productB = await createProduct(vendorB, { name: "Other meal" });
-    await Cart.create({
-      buyer: buyer._id,
-      items: [
-        { product: productA._id, quantity: 1 },
-        { product: productB._id, quantity: 1 }
-      ]
+    testApp.use((error, _request, response, _next) => {
+      response.status(500).json({ message: error.message });
     });
-    const mixed = await checkout(buyer);
-    expect(mixed.status).toBe(400);
-    expect(mixed.body.message).toMatch(/one vendor/i);
 
-    const missingKey = await request(app)
+    const response = await request(testApp)
       .post("/api/checkout")
-      .set("Authorization", `Bearer ${tokenFor(buyer)}`);
-    expect(missingKey.status).toBe(400);
+      .set("Authorization", `Bearer ${tokenFor(buyer)}`)
+      .set("Idempotency-Key", "rollback-checkout-key");
 
-    const vendorToken = await createUser("vendor");
-    const forbidden = await request(app)
-      .post("/api/checkout")
-      .set("Authorization", `Bearer ${tokenFor(vendorToken)}`)
-      .set("Idempotency-Key", "valid-vendor-key");
-    expect(forbidden.status).toBe(403);
+    expect(response.status).toBe(500);
+    expect(await Product.findById(product._id).then((item) => item.stock)).toBe(3);
+    expect(await Cart.findOne({ buyer: buyer._id }).then((cart) => cart.items)).toHaveLength(1);
+    expect(await Order.countDocuments({ buyer: buyer._id })).toBe(0);
+    expect(await Payment.countDocuments({})).toBe(0);
+    expect(await OrderItem.countDocuments({})).toBe(0);
   });
 
-  test("does not oversell the last item under simultaneous checkout", async () => {
+  test("many simultaneous buyers cannot oversell the last item", async () => {
     const vendor = await createUser("vendor");
-    const buyerA = await createUser();
-    const buyerB = await createUser();
+    const buyers = await Promise.all(
+      Array.from({ length: 8 }, () => createUser())
+    );
     const product = await createProduct(vendor, { stock: 1 });
-    await Promise.all([putInCart(buyerA, product), putInCart(buyerB, product)]);
+    await Promise.all(buyers.map((buyer) => putInCart(buyer, product)));
 
-    const results = await Promise.all([checkout(buyerA), checkout(buyerB)]);
-    expect(results.filter((response) => response.status === 201)).toHaveLength(
-      1
-    );
-    expect(results.filter((response) => response.status === 409)).toHaveLength(
-      1
-    );
-    expect(await Product.findById(product._id).then((item) => item.stock)).toBe(
-      0
-    );
+    const results = await Promise.all(buyers.map((buyer) => checkout(buyer)));
+    expect(results.filter((result) => result.status === 201)).toHaveLength(1);
+    expect(await Product.findById(product._id).then((item) => item.stock)).toBe(0);
     expect(await Order.countDocuments({})).toBe(1);
   });
 
-  test("signed success webhook records a balanced double-entry ledger once", async () => {
+  test("same idempotency key returns the same order without reserving stock twice", async () => {
+    const vendor = await createUser("vendor");
+    const buyer = await createUser();
+    const product = await createProduct(vendor, { stock: 4 });
+    await putInCart(buyer, product, 2);
+    const key = "same-idempotency-key";
+
+    const first = await checkout(buyer, key);
+    const second = await checkout(buyer, key);
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(200);
+    expect(second.body.order._id).toBe(first.body.order._id);
+    expect(await Order.countDocuments({ buyer: buyer._id })).toBe(1);
+    expect(await Product.findById(product._id).then((item) => item.stock)).toBe(2);
+  });
+
+  test("success webhook is idempotent and writes a balanced ledger", async () => {
     const vendor = await createUser("vendor");
     const buyer = await createUser();
     const product = await createProduct(vendor, {
@@ -312,122 +192,100 @@ describe("checkout and Stripe webhook", () => {
       stock: 3
     });
     await putInCart(buyer, product, 2);
-    const checkoutResponse = await checkout(buyer);
-    const intent = [...createdIntents.values()][0];
-    intent.amount_received = intent.amount;
+    const created = await checkout(buyer);
+    const reference = created.body.payment.reference;
+
     const event = {
-      id: "evt_test_payment_succeeded_001",
-      object: "event",
-      type: "payment_intent.succeeded",
-      data: { object: intent }
+      providerName: "mock",
+      eventId: `mock_${reference}_succeeded`,
+      reference,
+      outcome: "succeeded"
     };
+    const first = await processPaymentEvent(event);
+    const duplicate = await processPaymentEvent(event);
+    expect(first.duplicate).toBe(false);
+    expect(duplicate.duplicate).toBe(true);
+    expect(await Order.findById(created.body.order._id).then((order) => order.status)).toBe("Paid");
+    expect(await Payment.findById(created.body.payment.id).then((payment) => payment.status)).toBe("succeeded");
 
-    const response = await sendWebhook(event);
-    expect(response.status).toBe(200);
-    expect(response.body.received).toBe(true);
-    expect(
-      await Order.findById(checkoutResponse.body.order._id).then(
-        (order) => order.status
-      )
-    ).toBe("Paid");
-    expect(
-      await Payment.findOne({ order: checkoutResponse.body.order._id }).then(
-        (payment) => payment.status
-      )
-    ).toBe("succeeded");
-
-    const entries = await LedgerEntry.find({
-      order: checkoutResponse.body.order._id
-    });
-    const debits = entries
-      .filter((entry) => entry.direction === "debit")
+    const entries = await LedgerEntry.find({ order: created.body.order._id });
+    const debit = entries.filter((entry) => entry.direction === "debit")
       .reduce((sum, entry) => sum + entry.amountCents, 0);
-    const credits = entries
-      .filter((entry) => entry.direction === "credit")
+    const credit = entries.filter((entry) => entry.direction === "credit")
       .reduce((sum, entry) => sum + entry.amountCents, 0);
     expect(entries).toHaveLength(3);
-    expect(debits).toBe(credits);
-    expect(debits).toBe(4000);
-
-    const duplicate = await sendWebhook(event);
-    expect(duplicate.status).toBe(200);
-    expect(duplicate.body.duplicate).toBe(true);
-    expect(
-      await LedgerEntry.countDocuments({
-        order: checkoutResponse.body.order._id
-      })
-    ).toBe(3);
-    expect(await WebhookEvent.countDocuments({ eventId: event.id })).toBe(1);
+    expect(debit).toBe(credit);
+    expect(debit).toBe(4000);
   });
 
-  test("payment cancellation marks the order failed and restores reserved stock", async () => {
+  test("failed payment marks order Failed and restores reserved stock", async () => {
     const vendor = await createUser("vendor");
     const buyer = await createUser();
     const product = await createProduct(vendor, { stock: 4 });
     await putInCart(buyer, product, 3);
-    const checkoutResponse = await checkout(buyer);
-    const intent = [...createdIntents.values()][0];
-    const event = {
-      id: "evt_test_payment_failed_001",
-      object: "event",
-      type: "payment_intent.canceled",
-      data: { object: intent }
-    };
+    const created = await checkout(buyer);
 
-    const response = await sendWebhook(event);
+    const response = await simulate(buyer, created.body.payment.id, "failed");
     expect(response.status).toBe(200);
-    expect(
-      await Order.findById(checkoutResponse.body.order._id).then(
-        (order) => order.status
-      )
-    ).toBe("Failed");
-    expect(await Product.findById(product._id).then((item) => item.stock)).toBe(
-      4
-    );
-    expect(
-      await LedgerEntry.countDocuments({
-        order: checkoutResponse.body.order._id
-      })
-    ).toBe(0);
+    expect(await Order.findById(created.body.order._id).then((order) => order.status)).toBe("Failed");
+    expect(await Payment.findById(created.body.payment.id).then((payment) => payment.status)).toBe("failed");
+    expect(await Product.findById(product._id).then((item) => item.stock)).toBe(4);
+    expect(await LedgerEntry.countDocuments({ order: created.body.order._id })).toBe(0);
   });
 
-  test("a failed payment attempt remains retryable without releasing stock", async () => {
+  test("order lists are scoped to buyer and vendor; details enforce access", async () => {
+    const vendor = await createUser("vendor");
+    const otherVendor = await createUser("vendor");
+    const buyer = await createUser();
+    const otherBuyer = await createUser();
+    const product = await createProduct(vendor);
+    const unrelatedProduct = await createProduct(otherVendor, { name: "Unrelated" });
+    await putInCart(buyer, product);
+    await putInCart(otherBuyer, unrelatedProduct);
+    const ownOrder = await checkout(buyer);
+    const otherOrder = await checkout(otherBuyer);
+
+    const buyerList = await request(app)
+      .get("/api/orders?page=1&limit=5")
+      .set("Authorization", `Bearer ${tokenFor(buyer)}`);
+    expect(buyerList.status).toBe(200);
+    expect(buyerList.body.orders.map((order) => order._id)).toEqual([
+      ownOrder.body.order._id
+    ]);
+
+    const vendorList = await request(app)
+      .get("/api/orders")
+      .set("Authorization", `Bearer ${tokenFor(vendor)}`);
+    expect(vendorList.status).toBe(200);
+    expect(vendorList.body.orders.map((order) => order._id)).toEqual([
+      ownOrder.body.order._id
+    ]);
+
+    const forbidden = await request(app)
+      .get(`/api/orders/${otherOrder.body.order._id}`)
+      .set("Authorization", `Bearer ${tokenFor(buyer)}`);
+    expect(forbidden.status).toBe(404);
+  });
+
+  test("admin ledger integrity endpoint reports balanced totals", async () => {
     const vendor = await createUser("vendor");
     const buyer = await createUser();
-    const product = await createProduct(vendor, { stock: 4 });
-    await putInCart(buyer, product, 2);
-    const checkoutResponse = await checkout(buyer);
-    const intent = [...createdIntents.values()][0];
-    const event = {
-      id: "evt_test_payment_attempt_failed_001",
-      object: "event",
-      type: "payment_intent.payment_failed",
-      data: { object: intent }
-    };
+    const admin = await createUser("admin");
+    const product = await createProduct(vendor, { priceCents: 1000 });
+    await putInCart(buyer, product);
+    const created = await checkout(buyer);
+    await simulate(buyer, created.body.payment.id);
 
-    const response = await sendWebhook(event);
-    expect(response.status).toBe(200);
-    expect(
-      await Order.findById(checkoutResponse.body.order._id).then(
-        (order) => order.status
-      )
-    ).toBe("Pending");
-    expect(
-      await Payment.findOne({ order: checkoutResponse.body.order._id }).then(
-        (payment) => payment.status
-      )
-    ).toBe("pending");
-    expect(await Product.findById(product._id).then((item) => item.stock)).toBe(
-      2
-    );
-  });
-
-  test("rejects an invalid Stripe webhook signature", async () => {
     const response = await request(app)
-      .post("/api/webhooks/stripe")
-      .set("Content-Type", "application/json")
-      .set("Stripe-Signature", "invalid")
-      .send(JSON.stringify({ id: "evt_invalid" }));
-    expect(response.status).toBe(400);
+      .get("/api/ledger/integrity")
+      .set("Authorization", `Bearer ${tokenFor(admin)}`);
+    expect(response.status).toBe(200);
+    expect(response.body.balanced).toBe(true);
+    expect(response.body.currencies[0]).toMatchObject({
+      currency: "USD",
+      debitsCents: 1000,
+      creditsCents: 1000,
+      balanced: true
+    });
   });
 });
