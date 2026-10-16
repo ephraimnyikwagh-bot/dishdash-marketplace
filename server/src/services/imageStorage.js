@@ -25,6 +25,14 @@ function cloudinaryConfiguration() {
   };
 }
 
+function hasCloudinaryConfiguration() {
+  return Boolean(
+    process.env.CLOUDINARY_CLOUD_NAME ||
+      process.env.CLOUDINARY_API_KEY ||
+      process.env.CLOUDINARY_API_SECRET
+  );
+}
+
 function isValidImage(buffer, mimetype) {
   if (mimetype === "image/jpeg") {
     return (
@@ -104,8 +112,13 @@ export async function storeProductImage({ buffer, mimetype, productId, key }) {
   if (!validateImageBuffer(buffer, mimetype)) {
     throw new Error("Uploaded file contents do not match a supported image type");
   }
-  if (process.env.NODE_ENV === "production") {
+  if (hasCloudinaryConfiguration()) {
     return uploadToCloudinary({ buffer, mimetype, productId, key });
+  }
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "Cloudinary must be configured for product image uploads in production"
+    );
   }
 
   const filename = `${safeSegment(key || `${productId}-${randomUUID()}`)}.${allowedTypes[mimetype]}`;

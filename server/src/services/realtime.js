@@ -2,18 +2,18 @@ import { Server } from "socket.io";
 import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
 import Order from "../models/Order.js";
+import { getAllowedOrigins } from "../config/origins.js";
 
 let socketServer = null;
 
 export function initializeRealtime(httpServer, options = {}) {
-  const allowedOrigins = (process.env.CLIENT_ORIGIN || "http://localhost:5173")
-    .split(",")
-    .map((origin) => origin.trim());
   const io = new Server(httpServer, {
     cors: {
-      origin: allowedOrigins,
-      methods: ["GET", "POST"]
+      origin: getAllowedOrigins(),
+      methods: ["GET", "POST"],
+      credentials: true
     },
+    transports: ["websocket", "polling"],
     ...options
   });
 

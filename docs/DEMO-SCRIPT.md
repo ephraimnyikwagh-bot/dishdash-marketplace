@@ -28,8 +28,10 @@
 
 ## Presenter notes
 
-- Keep `PAYMENT_PROVIDER=mock` for an offline-safe demo. Mock payment simulation
-  is development-only and is not the production webhook flow.
+- Keep `PAYMENT_PROVIDER=mock` for an offline-safe demo. For a hosted production
+  demo, explicitly enable both server `DEMO_MODE=true` and client
+  `VITE_DEMO_MODE=true`; disable them again afterward. Mock simulation is not a
+  production payment flow.
 - If no local sample photos are in `server/seed-images`, the seeded catalog
   uses a placeholder URL. Product image uploads in development are stored under
   ignored `server/uploads/`.

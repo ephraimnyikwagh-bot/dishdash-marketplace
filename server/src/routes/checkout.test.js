@@ -18,6 +18,7 @@ import User from "../models/User.js";
 import WebhookEvent from "../models/WebhookEvent.js";
 import { processPaymentEvent } from "../services/checkout.js";
 import { initializeRealtime, resetRealtime } from "../services/realtime.js";
+import { getAllowedOrigins } from "../config/origins.js";
 
 const jwtSecret = "test-secret-with-at-least-thirty-two-characters";
 
@@ -236,6 +237,49 @@ describe("checkout, payments, orders, and ledger", () => {
     expect(await Product.findById(product._id).then((item) => item.stock)).toBe(2);
   });
 
+  test("production mock simulation is enabled only by DEMO_MODE", async () => {
+    const vendor = await createUser("vendor");
+    const buyer = await createUser();
+    const product = await createProduct(vendor);
+    await putInCart(buyer, product);
+    const created = await checkout(buyer);
+    process.env.NODE_ENV = "production";
+    process.env.DEMO_MODE = "false";
+
+    try {
+      const disabled = await simulate(buyer, created.body.payment.id);
+      expect(disabled.status).toBe(404);
+
+      process.env.DEMO_MODE = "true";
+      const enabled = await simulate(buyer, created.body.payment.id);
+      expect(enabled.status).toBe(200);
+      expect(enabled.body.outcome).toBe("succeeded");
+    } finally {
+      process.env.NODE_ENV = "test";
+      delete process.env.DEMO_MODE;
+    }
+  });
+
+  test("demo seed endpoint requires admin access and DEMO_MODE", async () => {
+    const admin = await createUser("admin");
+    const buyer = await createUser("buyer");
+    process.env.DEMO_MODE = "false";
+
+    try {
+      const forbidden = await request(app)
+        .post("/api/admin/demo-seed")
+        .set("Authorization", `Bearer ${tokenFor(buyer)}`);
+      expect(forbidden.status).toBe(403);
+
+      const disabled = await request(app)
+        .post("/api/admin/demo-seed")
+        .set("Authorization", `Bearer ${tokenFor(admin)}`);
+      expect(disabled.status).toBe(404);
+    } finally {
+      delete process.env.DEMO_MODE;
+    }
+  });
+
   test("success webhook is idempotent and writes a balanced ledger", async () => {
     const vendor = await createUser("vendor");
     const buyer = await createUser();
@@ -375,6 +419,15 @@ describe("checkout, payments, orders, and ledger", () => {
       }
       expect((await fetchReceipt(otherBuyer)).status).toBe(404);
       expect((await fetchReceipt(courier)).status).toBe(403);
+      expect(await Receipt.countDocuments({ order: created.body.order._id })).toBe(1);
+
+      await Receipt.collection.updateOne(
+        { _id: receipt._id },
+        { $unset: { pdfData: "" } }
+      );
+      const regenerated = await fetchReceipt(buyer);
+      expect(regenerated.status).toBe(200);
+      expect(regenerated.body.subarray(0, 4).toString()).toBe("%PDF");
       expect(await Receipt.countDocuments({ order: created.body.order._id })).toBe(1);
     });
 
@@ -592,6 +645,9 @@ describe("checkout, payments, orders, and ledger", () => {
       const unrelatedBuyer = await createUser("buyer");
       const server = createServer();
       const io = initializeRealtime(server);
+      expect(io.engine.opts.transports).toEqual(["websocket", "polling"]);
+      expect(io.engine.opts.cors.origin).toEqual(getAllowedOrigins());
+      expect(app.get("trust proxy")).toBe(1);
       await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
       const address = server.address();
       const url = `http://127.0.0.1:${address.port}`;

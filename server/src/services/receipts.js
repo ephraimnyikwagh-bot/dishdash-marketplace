@@ -125,8 +125,10 @@ async function renderReceipt(order, items) {
 }
 
 export async function ensureReceipt(orderId) {
-  const existing = await Receipt.findOne({ order: orderId }).lean();
-  if (existing) return existing;
+  const existing = await Receipt.findOne({ order: orderId });
+  if (existing?.pdfData?.subarray(0, 4).toString() === "%PDF") {
+    return existing;
+  }
 
   const order = await Order.findById(orderId)
     .populate("buyer", "name email")
@@ -139,11 +141,20 @@ export async function ensureReceipt(orderId) {
     throw new Error("A receipt can only be generated for a paid order");
   }
   const items = await OrderItem.find({ order: order._id }).sort({ _id: 1 }).lean();
-  const receiptNumber = `DD-${Date.now()}-${randomUUID().slice(0, 8).toUpperCase()}`;
+  const receiptNumber =
+    existing?.receiptNumber ||
+    `DD-${Date.now()}-${randomUUID().slice(0, 8).toUpperCase()}`;
   const pdfData = await renderReceipt(
     { ...order.toObject(), receiptNumber },
     items
   );
+
+  if (existing) {
+    existing.pdfData = pdfData;
+    existing.issuedAt = new Date();
+    await existing.save();
+    return existing;
+  }
 
   try {
     return await Receipt.create({
@@ -155,7 +166,15 @@ export async function ensureReceipt(orderId) {
   } catch (error) {
     if (error.code !== 11000) throw error;
     const concurrent = await Receipt.findOne({ order: orderId });
-    if (concurrent) return concurrent;
+    if (concurrent?.pdfData?.subarray(0, 4).toString() === "%PDF") {
+      return concurrent;
+    }
+    if (concurrent) {
+      concurrent.pdfData = pdfData;
+      concurrent.issuedAt = new Date();
+      await concurrent.save();
+      return concurrent;
+    }
     throw error;
   }
 }

@@ -12,6 +12,7 @@ import { useAuth } from "./auth.jsx";
 const RealtimeContext = createContext(null);
 
 function getSocketOrigin() {
+  if (import.meta.env.VITE_SOCKET_URL) return import.meta.env.VITE_SOCKET_URL;
   const apiUrl = import.meta.env.VITE_API_URL || "http://localhost:4000/api";
   return apiUrl.replace(/\/api\/?$/, "");
 }
@@ -34,7 +35,10 @@ export function RealtimeProvider({ children }) {
 
     setUpdates([]);
     setToasts([]);
-    const client = io(getSocketOrigin(), { auth: { token } });
+    const client = io(getSocketOrigin(), {
+      auth: { token },
+      transports: ["websocket", "polling"]
+    });
     setSocket(client);
     client.on("connect", () => setConnected(true));
     client.on("disconnect", () => setConnected(false));

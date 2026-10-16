@@ -23,8 +23,17 @@ export function createMockProvider() {
       const intent = [...intents.values()].find((item) => item.id === reference);
       return intent || null;
     },
-    async simulate(reference, status) {
-      const intent = [...intents.values()].find((item) => item.id === reference);
+    async simulate(reference, status, fallbackIntent) {
+      let intent = [...intents.values()].find((item) => item.id === reference);
+      if (!intent && fallbackIntent) {
+        intent = {
+          id: reference,
+          amountCents: fallbackIntent.amountCents,
+          currency: fallbackIntent.currency,
+          status: "pending",
+          paymentUrl: null
+        };
+      }
       if (!intent) return null;
       intent.status = status;
       return intent;

@@ -8,7 +8,8 @@ import { createPaymentProvider } from "../services/payments/index.js";
 
 export function createPaymentsRouter({
   providerFactory = createPaymentProvider,
-  environment = () => process.env.NODE_ENV
+  environment = () => process.env.NODE_ENV,
+  demoMode = () => process.env.DEMO_MODE === "true"
 } = {}) {
   const router = Router();
 
@@ -44,7 +45,7 @@ export function createPaymentsRouter({
     requireAuth,
     allowRoles("buyer"),
     async (request, response, next) => {
-      if (environment() === "production") {
+      if (environment() === "production" && !demoMode()) {
         response.status(404).json({ message: "Not found" });
         return;
       }
@@ -77,7 +78,11 @@ export function createPaymentsRouter({
         const provider = providerFactory();
         const intent = await provider.simulate(
           payment.providerReference,
-          outcome
+          outcome,
+          {
+            amountCents: payment.amountCents,
+            currency: payment.currency
+          }
         );
         if (!intent) {
           response.status(404).json({ message: "Mock payment intent not found" });

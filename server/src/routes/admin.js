@@ -1,3 +1,6 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 import { Router } from "express";
 import { query, validationResult } from "express-validator";
 import { allowRoles, requireAuth } from "../middleware/auth.js";
@@ -8,6 +11,8 @@ import Payment from "../models/Payment.js";
 import User from "../models/User.js";
 
 const router = Router();
+const execFileAsync = promisify(execFile);
+const serverDirectory = fileURLToPath(new URL("../../", import.meta.url));
 const pagination = [
   query("page").optional().isInt({ min: 1 }),
   query("limit").optional().isInt({ min: 1, max: 100 }),
@@ -18,6 +23,28 @@ const pagination = [
 ];
 
 router.use(requireAuth, allowRoles("admin"));
+
+router.post("/demo-seed", async (_request, response) => {
+  if (process.env.DEMO_MODE !== "true") {
+    response.status(404).json({ message: "Not found" });
+    return;
+  }
+  try {
+    await execFileAsync(process.execPath, ["src/scripts/seed.js"], {
+      cwd: serverDirectory,
+      env: process.env,
+      timeout: 120000,
+      maxBuffer: 1024 * 1024
+    });
+    response.json({ message: "Demo data seeded successfully" });
+  } catch (error) {
+    console.error("Admin demo seed failed.", {
+      name: error?.name || "Error",
+      code: error?.code || "UNKNOWN"
+    });
+    response.status(500).json({ message: "Demo seed failed" });
+  }
+});
 
 router.get("/dashboard", async (_request, response, next) => {
   try {

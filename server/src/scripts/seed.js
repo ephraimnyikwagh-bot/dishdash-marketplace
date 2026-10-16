@@ -107,8 +107,10 @@ const dishes = [
 ];
 
 async function seed() {
-  if (process.env.NODE_ENV === "production") {
-    throw new Error("Refusing to seed demo data when NODE_ENV is production.");
+  if (process.env.NODE_ENV === "production" && process.env.DEMO_MODE !== "true") {
+    throw new Error(
+      "Refusing to seed demo data in production unless DEMO_MODE=true."
+    );
   }
 
   if (!process.env.MONGODB_URI) {

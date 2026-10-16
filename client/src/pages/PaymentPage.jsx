@@ -105,7 +105,7 @@ export default function PaymentPage() {
               Mock payment is enabled. No payment credentials or card details
               are required.
             </p>
-            {import.meta.env.DEV ? (
+            {import.meta.env.DEV || import.meta.env.VITE_DEMO_MODE === "true" ? (
               <div className="mt-5 grid gap-3 sm:grid-cols-2">
                 <button
                   className="button-primary"
@@ -126,7 +126,8 @@ export default function PaymentPage() {
               </div>
             ) : (
               <p className="mt-5 text-sm text-slate-500">
-                Mock simulation is available only in development.
+                Mock simulation is disabled. Ask the demo administrator to enable
+                demo mode.
               </p>
             )}
           </>

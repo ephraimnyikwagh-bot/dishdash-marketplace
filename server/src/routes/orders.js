@@ -3,7 +3,6 @@ import { query, validationResult } from "express-validator";
 import { allowRoles, requireAuth } from "../middleware/auth.js";
 import Order from "../models/Order.js";
 import OrderItem from "../models/OrderItem.js";
-import Receipt from "../models/Receipt.js";
 import { ensureReceipt } from "../services/receipts.js";
 import {
   OrderTransitionError,
@@ -153,8 +152,7 @@ router.get(
         return;
       }
 
-      const receipt = await Receipt.findOne({ order: order._id });
-      const saved = receipt || (await ensureReceipt(order._id));
+      const saved = await ensureReceipt(order._id);
       response
         .type("application/pdf")
         .set(
