@@ -6,6 +6,7 @@ import Notice from "../components/Notice.jsx";
 import { formatPrice, StatusBadge } from "./OrdersPage.jsx";
 import { useAuth } from "../auth.jsx";
 import { useRealtime } from "../realtime.jsx";
+import ProductImage from "../components/ProductImage.jsx";
 
 const deliveryStages = ["Pending", "Paid", "Shipped", "Delivered"];
 
@@ -166,14 +167,17 @@ export default function OrderDetailPage() {
         </div>
         <div className="mt-7 divide-y divide-slate-100 border-y border-slate-100">
           {items.map((item) => (
-            <div className="flex justify-between gap-4 py-4" key={item._id}>
-              <div>
+            <div className="flex items-center justify-between gap-3 py-4 sm:gap-4" key={item._id}>
+              <div className="w-20 shrink-0 overflow-hidden rounded-lg sm:w-24">
+                <ProductImage name={item.name} src={item.imageUrl} />
+              </div>
+              <div className="min-w-0 flex-1">
                 <p className="font-bold">{item.name}</p>
                 <p className="mt-1 text-sm text-slate-500">
                   {item.quantity} × {formatPrice(item.unitPriceCents)}
                 </p>
               </div>
-              <span className="font-bold">{formatPrice(item.lineTotalCents)}</span>
+              <span className="shrink-0 text-sm font-bold sm:text-base">{formatPrice(item.lineTotalCents)}</span>
             </div>
           ))}
         </div>

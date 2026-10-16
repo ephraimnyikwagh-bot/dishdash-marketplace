@@ -39,6 +39,6 @@ body {
   }
 
   .nav-link {
-    @apply rounded-lg px-2 py-2 text-sm font-semibold text-slate-600 hover:bg-orange-50 hover:text-orange-700;
+    @apply rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-orange-50 hover:text-orange-700;
   }
 }

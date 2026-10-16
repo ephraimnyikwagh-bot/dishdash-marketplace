@@ -5,13 +5,7 @@ import { useAuth } from "../auth.jsx";
 import Loading from "../components/Loading.jsx";
 import Notice from "../components/Notice.jsx";
 import { useRealtime } from "../realtime.jsx";
-
-function formatPrice(cents) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD"
-  }).format((cents || 0) / 100);
-}
+import { formatPrice } from "../money.js";
 
 function StatusBadge({ status }) {
   const styles = {

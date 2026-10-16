@@ -30,4 +30,16 @@ describe("authentication registration validation", () => {
     expect(response.status).toBe(403);
     expect(response.body.message).toBe("Admin registration is not authorized");
   });
+
+  test("does not allow admin registration when the key is omitted", async () => {
+    const response = await request(app).post("/api/auth/register").send({
+      name: "Unkeyed Admin",
+      email: "unkeyed-admin@example.com",
+      password: "correct-horse-battery-staple",
+      role: "admin"
+    });
+
+    expect(response.status).toBe(403);
+    expect(response.body.message).toBe("Admin registration is not authorized");
+  });
 });

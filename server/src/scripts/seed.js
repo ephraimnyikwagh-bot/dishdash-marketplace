@@ -1,9 +1,12 @@
 import "dotenv/config";
 import bcrypt from "bcryptjs";
+import { access, readFile } from "node:fs/promises";
 import mongoose from "mongoose";
+import path from "node:path";
 import Product from "../models/Product.js";
 import User from "../models/User.js";
 import { connectDatabase } from "../config/database.js";
+import { storeProductImage } from "../services/imageStorage.js";
 
 const demoPassword = "DishDashDemo2026!";
 const demoUsers = [
@@ -12,6 +15,13 @@ const demoUsers = [
   { name: "Demo Courier", email: "courier@dishdash.demo", role: "courier" },
   { name: "Demo Admin", email: "admin@dishdash.demo", role: "admin" }
 ];
+const seedImageDirectory = new URL("../../seed-images/", import.meta.url);
+const mimeTypes = {
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".png": "image/png",
+  ".webp": "image/webp"
+};
 
 const dishes = [
   {
@@ -126,11 +136,33 @@ async function seed() {
 
   const vendor = usersByRole.vendor;
   for (const dish of dishes) {
-    await Product.findOneAndUpdate(
+    const slug = dish.name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "");
+    const product = await Product.findOneAndUpdate(
       { vendor: vendor._id, name: dish.name },
       { $set: { ...dish, vendor: vendor._id, isActive: true } },
       { upsert: true, new: true, runValidators: true }
     );
+    for (const extension of Object.keys(mimeTypes)) {
+      const filename = `${slug}${extension}`;
+      const imagePath = new URL(filename, seedImageDirectory);
+      try {
+        await access(imagePath);
+      } catch (error) {
+        if (error.code === "ENOENT") continue;
+        throw error;
+      }
+      product.imageUrl = await storeProductImage({
+        buffer: await readFile(imagePath),
+        mimetype: mimeTypes[path.extname(filename)],
+        productId: product.id,
+        key: `seed-${product.id}-${slug}`
+      });
+      await product.save();
+      break;
+    }
   }
 
   console.info(

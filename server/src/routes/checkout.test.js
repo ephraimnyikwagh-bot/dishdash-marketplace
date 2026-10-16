@@ -335,7 +335,7 @@ describe("checkout, payments, orders, and ledger", () => {
     expect(response.status).toBe(200);
     expect(response.body.balanced).toBe(true);
     expect(response.body.currencies[0]).toMatchObject({
-      currency: "USD",
+      currency: "NGN",
       debitsCents: 1000,
       creditsCents: 1000,
       balanced: true

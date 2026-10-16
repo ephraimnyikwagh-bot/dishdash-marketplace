@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import api, { getErrorMessage } from "../api.js";
 import Loading from "../components/Loading.jsx";
 import Notice from "../components/Notice.jsx";
 import ProductImage from "../components/ProductImage.jsx";
+import { formatPrice } from "../money.js";
 
 const emptyForm = {
   name: "",
@@ -13,13 +14,6 @@ const emptyForm = {
   imageUrl: ""
 };
 
-function formatPrice(cents) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD"
-  }).format((cents || 0) / 100);
-}
-
 export default function VendorDashboardPage() {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -28,6 +22,9 @@ export default function VendorDashboardPage() {
   const [notice, setNotice] = useState("");
   const [editingId, setEditingId] = useState("");
   const [form, setForm] = useState(emptyForm);
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState("");
+  const imageInputRef = useRef(null);
 
   const loadProducts = useCallback(async () => {
     setLoading(true);
@@ -47,12 +44,20 @@ export default function VendorDashboardPage() {
   }, [loadProducts]);
 
   function resetForm() {
+    if (imagePreview.startsWith("blob:")) URL.revokeObjectURL(imagePreview);
     setForm(emptyForm);
+    setImageFile(null);
+    setImagePreview("");
+    if (imageInputRef.current) imageInputRef.current.value = "";
     setEditingId("");
   }
 
   function startEditing(product) {
+    if (imagePreview.startsWith("blob:")) URL.revokeObjectURL(imagePreview);
+    setImageFile(null);
+    if (imageInputRef.current) imageInputRef.current.value = "";
     setEditingId(product._id);
+    setImagePreview(product.imageUrl || "");
     setForm({
       name: product.name,
       category: product.category,
@@ -64,12 +69,31 @@ export default function VendorDashboardPage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  function selectImage(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      setError("Choose a JPG, PNG, or WebP image.");
+      event.target.value = "";
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setError("Image must be no larger than 2 MB.");
+      event.target.value = "";
+      return;
+    }
+    if (imagePreview.startsWith("blob:")) URL.revokeObjectURL(imagePreview);
+    setError("");
+    setImageFile(file);
+    setImagePreview(URL.createObjectURL(file));
+  }
+
   async function handleSubmit(event) {
     event.preventDefault();
     const priceCents = Number(form.priceCents);
     const stock = Number(form.stock);
     if (!Number.isInteger(priceCents) || priceCents < 1) {
-      setError("Enter a price of at least 1 cent.");
+      setError("Enter a price of at least 1 kobo.");
       return;
     }
     if (!Number.isInteger(stock) || stock < 0) {
@@ -81,17 +105,28 @@ export default function VendorDashboardPage() {
     setError("");
     setNotice("");
     const payload = { ...form, priceCents, stock };
+    let productId = editingId;
     try {
       if (editingId) {
         await api.patch(`/products/${editingId}`, payload);
         setNotice("Product updated.");
       } else {
-        await api.post("/products", payload);
+        const { data } = await api.post("/products", payload);
+        productId = data.product._id;
+        setEditingId(productId);
         setNotice("Product added to your menu.");
+      }
+      if (imageFile) {
+        const upload = new FormData();
+        upload.append("image", imageFile);
+        await api.post(`/products/${productId}/image`, upload, {
+          headers: { "Content-Type": "multipart/form-data" }
+        });
       }
       resetForm();
       await loadProducts();
     } catch (requestError) {
+      if (productId) await loadProducts();
       setError(getErrorMessage(requestError, "Could not save this product."));
     } finally {
       setSaving(false);
@@ -137,7 +172,7 @@ export default function VendorDashboardPage() {
             {editingId ? "Edit product" : "Add a product"}
           </h2>
           <p className="mt-1 text-sm text-slate-500">
-            All prices are entered in cents.
+            Prices are entered in kobo (100 kobo = NGN 1.00).
           </p>
           <form className="mt-5 space-y-3" onSubmit={handleSubmit}>
             <Notice>{error}</Notice>
@@ -179,7 +214,7 @@ export default function VendorDashboardPage() {
             </label>
             <div className="grid grid-cols-2 gap-3">
               <label className="field-label">
-                Price (cents)
+                Price (kobo)
                 <input
                   className="field-input"
                   min="1"
@@ -207,18 +242,39 @@ export default function VendorDashboardPage() {
                 />
               </label>
             </div>
-            <label className="field-label">
-              Image URL{" "}
-              <span className="font-normal text-slate-400">(optional)</span>
+            <div className="space-y-3">
+              <label className="field-label">
+                Product image{" "}
+                <span className="font-normal text-slate-400">(JPG, PNG, or WebP · max 2 MB)</span>
+                <input
+                  accept="image/jpeg,image/png,image/webp"
+                  className="field-input file:mr-3 file:rounded-lg file:border-0 file:bg-orange-50 file:px-3 file:py-2 file:text-xs file:font-bold file:text-orange-800"
+                  onChange={selectImage}
+                  ref={imageInputRef}
+                  type="file"
+                />
+              </label>
+              <ProductImage
+                name={form.name || "Product"}
+                src={imagePreview || form.imageUrl}
+              />
+              <label className="field-label">
+                Or use an image URL{" "}
+                <span className="font-normal text-slate-400">(optional)</span>
               <input
                 className="field-input"
-                onChange={(event) =>
-                  setForm({ ...form, imageUrl: event.target.value })
-                }
+                onChange={(event) => {
+                  if (imagePreview.startsWith("blob:")) URL.revokeObjectURL(imagePreview);
+                  setImageFile(null);
+                  if (imageInputRef.current) imageInputRef.current.value = "";
+                  setImagePreview(event.target.value);
+                  setForm({ ...form, imageUrl: event.target.value });
+                }}
                 type="url"
                 value={form.imageUrl}
               />
-            </label>
+              </label>
+            </div>
             <div className="flex gap-2 pt-1">
               <button
                 className="button-primary flex-1"

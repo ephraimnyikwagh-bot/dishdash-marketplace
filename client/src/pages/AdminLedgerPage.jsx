@@ -2,13 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import api, { getErrorMessage } from "../api.js";
 import Loading from "../components/Loading.jsx";
 import Notice from "../components/Notice.jsx";
-
-function money(cents, currency = "USD") {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency
-  }).format((cents || 0) / 100);
-}
+import { formatPrice } from "../money.js";
 
 export default function AdminLedgerPage() {
   const [integrity, setIntegrity] = useState(null);
@@ -71,8 +65,8 @@ export default function AdminLedgerPage() {
                 {currency.balanced ? "Balanced" : "Not balanced"}
               </span>
             </div>
-            <div className="mt-4 flex justify-between text-sm"><span>Debits</span><strong>{money(currency.debitsCents, currency.currency)}</strong></div>
-            <div className="mt-2 flex justify-between text-sm"><span>Credits</span><strong>{money(currency.creditsCents, currency.currency)}</strong></div>
+            <div className="mt-4 flex justify-between text-sm"><span>Debits</span><strong>{formatPrice(currency.debitsCents, currency.currency)}</strong></div>
+            <div className="mt-2 flex justify-between text-sm"><span>Credits</span><strong>{formatPrice(currency.creditsCents, currency.currency)}</strong></div>
           </article>
         ))}
         {integrity?.currencies?.length === 0 && (
@@ -95,7 +89,7 @@ export default function AdminLedgerPage() {
                 <td className="px-4 py-3 font-mono text-xs">{String(entry.order?._id || entry.order).slice(-8)}</td>
                 <td className="px-4 py-3">{entry.account}</td>
                 <td className="px-4 py-3 capitalize">{entry.direction}</td>
-                <td className="px-4 py-3">{money(entry.amountCents, entry.currency)}</td>
+                <td className="px-4 py-3">{formatPrice(entry.amountCents, entry.currency)}</td>
                 <td className="max-w-64 truncate px-4 py-3 font-mono text-xs">{entry.idempotencyKey}</td>
               </tr>
             ))}

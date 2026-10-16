@@ -4,15 +4,9 @@ import { useCart } from "../cart.jsx";
 import Loading from "../components/Loading.jsx";
 import Notice from "../components/Notice.jsx";
 import ProductImage from "../components/ProductImage.jsx";
+import { formatPrice } from "../money.js";
 
 const PAGE_SIZE = 8;
-
-function formatPrice(cents) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD"
-  }).format((cents || 0) / 100);
-}
 
 export default function CatalogPage() {
   const { refreshCart } = useCart();

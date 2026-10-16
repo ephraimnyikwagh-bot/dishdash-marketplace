@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { getErrorMessage } from "../api.js";
 import { useAuth } from "../auth.jsx";
+import BrandLogo from "../components/BrandLogo.jsx";
 import Notice from "../components/Notice.jsx";
 
 function roleDestination(role) {
@@ -27,6 +28,12 @@ function AuthShell({ eyebrow, title, subtitle, children }) {
         </p>
       </section>
       <section className="mx-auto w-full max-w-md rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-100 sm:p-9">
+        <div className="mb-5 flex items-center gap-3">
+          <BrandLogo className="h-12 w-12" />
+          <span className="text-xl font-black text-slate-900">
+            Dish<span className="text-orange-600">Dash</span>
+          </span>
+        </div>
         <p className="text-sm font-bold uppercase tracking-wider text-orange-600">
           {eyebrow}
         </p>
@@ -123,6 +130,7 @@ export function RegisterPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState("buyer");
+  const [adminRegistrationKey, setAdminRegistrationKey] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -138,10 +146,14 @@ export function RegisterPage() {
     }
     setSubmitting(true);
     try {
-      const account = await register({ name, email, password, role });
-      navigate(account.role === "vendor" ? "/vendor" : "/catalog", {
-        replace: true
+      const account = await register({
+        name,
+        email,
+        password,
+        role,
+        ...(role === "admin" ? { adminRegistrationKey } : {})
       });
+      navigate(roleDestination(account.role), { replace: true });
     } catch (requestError) {
       setError(getErrorMessage(requestError, "Could not create your account."));
     } finally {
@@ -152,7 +164,7 @@ export function RegisterPage() {
   return (
     <AuthShell
       eyebrow="Join the neighborhood"
-      subtitle="Create a buyer account to order, or a vendor account to list your menu."
+      subtitle="Join as a buyer, vendor, courier, or authorized administrator."
       title="Create account"
     >
       <form className="mt-7 space-y-4" onSubmit={handleSubmit}>
@@ -166,8 +178,26 @@ export function RegisterPage() {
           >
             <option value="buyer">Order as a buyer</option>
             <option value="vendor">Sell as a vendor</option>
+            <option value="courier">Deliver as a courier</option>
+            <option value="admin">Register as an administrator</option>
           </select>
         </label>
+        {role === "admin" && (
+          <label className="field-label">
+            Admin registration key
+            <input
+              autoComplete="off"
+              className="field-input"
+              onChange={(event) => setAdminRegistrationKey(event.target.value)}
+              required
+              type="password"
+              value={adminRegistrationKey}
+            />
+            <span className="text-xs font-normal text-slate-500">
+              Admin signup is rejected unless this matches ADMIN_REGISTRATION_KEY on the server.
+            </span>
+          </label>
+        )}
         <label className="field-label">
           Name
           <input

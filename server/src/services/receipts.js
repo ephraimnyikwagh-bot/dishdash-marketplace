@@ -31,6 +31,12 @@ async function renderReceipt(order, items) {
 
   if (existsSync(logoPath)) {
     doc.image(logoPath, 50, 42, { fit: [72, 56] });
+  } else {
+    doc.roundedRect(50, 42, 72, 56, 10).fill("#ea580c");
+    doc.fillColor("#ffffff").fontSize(16).text("DD", 50, 61, {
+      width: 72,
+      align: "center"
+    });
   }
   doc
     .fontSize(22)

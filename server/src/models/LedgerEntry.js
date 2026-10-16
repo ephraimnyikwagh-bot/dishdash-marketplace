@@ -21,7 +21,7 @@ const ledgerEntrySchema = new mongoose.Schema(
       min: 1,
       validate: Number.isInteger
     },
-    currency: { type: String, required: true, uppercase: true, default: "USD" },
+    currency: { type: String, required: true, uppercase: true, default: "NGN" },
     idempotencyKey: { type: String, required: true, unique: true }
   },
   { timestamps: true }

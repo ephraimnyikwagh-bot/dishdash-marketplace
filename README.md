@@ -99,6 +99,9 @@ you intend to remove the persisted local database volume.
 | `FLW_BASE_URL` | Optional; if set, must be `https://api.flutterwave.com/v3` |
 | `FLW_REDIRECT_URL` | Optional hosted-payment redirect destination; defaults to the client return page |
 | `PLATFORM_FEE_BPS` | Platform fee in basis points (default `1000`, 10%) |
+| `CLOUDINARY_CLOUD_NAME` | Cloudinary cloud name; required for production image uploads |
+| `CLOUDINARY_API_KEY` | Cloudinary API key; required for production image uploads |
+| `CLOUDINARY_API_SECRET` | Cloudinary API secret; required for production image uploads |
 | `VITE_API_URL` | Client API base URL, normally `http://localhost:4000/api` |
 
 Never commit any `.env` file. Card details are collected only by Flutterwave's
@@ -127,9 +130,10 @@ are bcrypt-hashed. Send `Authorization: Bearer <token>` on protected requests.
 | `GET` | `/products/:productId` | Authenticated | Read an active product |
 | `GET` | `/products/mine` | Vendor | List own products |
 | `POST` | `/products` | Vendor | Create a product |
+| `POST` | `/products/:productId/image` | Owning vendor | Upload a JPG, PNG, or WebP product image (2 MB maximum, multipart field `image`) |
 | `PATCH` | `/products/:productId` | Owning vendor | Update product and inventory |
 | `DELETE` | `/products/:productId` | Owning vendor | Deactivate/remove a product |
-| `GET` | `/cart` | Buyer | Read cart and total in integer cents |
+| `GET` | `/cart` | Buyer | Read cart and total in integer kobo |
 | `POST` | `/cart/items` | Buyer | Add `{ "productId": "...", "quantity": 1 }` |
 | `PATCH` | `/cart/items/:productId` | Buyer | Set quantity |
 | `DELETE` | `/cart/items/:productId` | Buyer | Remove a cart item |
@@ -137,9 +141,21 @@ are bcrypt-hashed. Send `Authorization: Bearer <token>` on protected requests.
 | `GET` | `/orders?page=1&limit=10` | Buyer/vendor/admin | List own, related, or all orders, respectively |
 | `GET` | `/orders/:orderId` | Buyer/vendor/admin | Read an accessible order and its items |
 
-Product prices and all order/ledger money values are integer cents. Product and
+Product prices and all order/ledger money values are integer kobo (minor units)
+and are displayed as NGN with two decimal places. Product and
 order listing endpoints are paginated. Checkout currently requires all items
 in the cart to belong to the same vendor.
+
+Product photos are stored in `server/uploads` and served under `/uploads/` in
+development. The upload route verifies both the declared MIME type and file
+signature. Production uploads use signed Cloudinary uploads; configure the
+three `CLOUDINARY_*` variables in `server/.env` before enabling production
+image uploads. Never commit `.env` files or uploaded image files.
+
+Optional seed photos go in `server/seed-images`. Use the dish slug as the
+filename (for example `smoky-jollof-rice.jpg`); see
+[server/seed-images/README.md](./server/seed-images/README.md). Products without
+a matching seed photo keep the placeholder URL.
 
 ## Mock checkout (default, no keys)
 
@@ -189,7 +205,7 @@ Payment notifications are processed at `POST /api/payments/webhook`. Duplicate
 event IDs are ignored, and terminal order/payment checks prevent duplicate
 ledger writes. Successful payment creates balanced debit/credit lines for buyer
 clearing, vendor payable, and (when nonzero) platform revenue. All ledger
-entries are integer cents.
+entries are integer kobo.
 
 | Method | Endpoint | Access | Description |
 | --- | --- | --- | --- |
@@ -233,6 +249,43 @@ To demo with three browser windows, sign in separately as
 in the buyer window, mark it shipped from the vendor's Incoming orders, then
 accept and deliver it in the courier dashboard. The buyer timeline and all
 involved notification bells update live.
+
+## Image handling and UI polish (Phase 7)
+
+The DishDash PNG logo is used in the app header, sign-in/sign-up card, browser
+favicon, and PDF receipt header. If the PNG cannot load, the client uses
+`client/public/brand-mark.svg`; receipts draw an orange DD mark when the PNG is
+missing. Product cards, cart lines, vendor listings, and order details lazy-load
+images with accessible alt text and a food placeholder fallback.
+
+Vendors upload a product photo from the add/edit product form. The browser
+previews the selection and accepts JPG, PNG, and WebP files up to 2 MB. The
+server also checks the declared type and image signature and only allows a
+vendor to change images on their own active products. In development, uploads
+are stored under `server/uploads` and served by the API. In production, the
+image storage service uploads signed files to Cloudinary; configure the
+`CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET`
+values in `server/.env`. Uploaded files and `.env` files must not be committed.
+
+Register as buyer, vendor, or courier from the sign-up page. Admin signup
+requires the server's `ADMIN_REGISTRATION_KEY`; alternatively, use the seeded
+admin demo login. All visible product, cart, order, payment, admin, and ledger
+amounts use NGN formatting with two decimal places.
+
+### Phase 7 browser walkthrough
+
+1. Start the API and client as described in Setup, then run
+   `Set-Location server; npm.cmd run seed` if the database is empty.
+2. Sign up or log in as the buyer and check the logo, food photos, and NGN
+   prices in the menu, cart, and order details.
+3. Log out and sign up as a vendor. Add a product, choose a JPG/PNG/WebP photo,
+   and check its preview and listing. Edit the product and replace the image.
+   Try a GIF or an image over 2 MB; both should be rejected.
+4. Sign out and create a courier account through sign-up, then confirm its
+   delivery dashboard and logout are available.
+5. Try registering an admin with a blank or incorrect key; the API must reject
+   it. For the demo admin UI, sign in as `admin@dishdash.demo` with the seeded
+   shared password and check the responsive dashboard navigation.
 
 ## Receipts, admin, and disputes (Phase 6)
 
@@ -304,5 +357,9 @@ using:
 Set-Location server
 npm.cmd test -- --runTestsByPath src/routes/checkout.test.js
 ```
+
+The catalog integration tests also exercise successful vendor image upload,
+static image serving, unsupported type and 2 MB size rejection, and image
+ownership protection.
 
 Tests do not contact Flutterwave.

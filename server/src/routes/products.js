@@ -1,9 +1,44 @@
 import { Router } from "express";
 import { body, query, validationResult } from "express-validator";
+import multer from "multer";
+import mongoose from "mongoose";
 import Product from "../models/Product.js";
 import { allowRoles, requireAuth } from "../middleware/auth.js";
+import { storeProductImage, validateImageBuffer } from "../services/imageStorage.js";
 
 const router = Router();
+const maxImageBytes = 2 * 1024 * 1024;
+const uploadImage = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: maxImageBytes, files: 1 },
+  fileFilter(_request, file, callback) {
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.mimetype)) {
+      callback(Object.assign(new Error("Image must be a JPG, PNG, or WebP file"), {
+        statusCode: 400
+      }));
+      return;
+    }
+    callback(null, true);
+  }
+});
+
+function handleImageUpload(request, response, next) {
+  uploadImage.single("image")(request, response, (error) => {
+    if (!error) {
+      next();
+      return;
+    }
+    if (error instanceof multer.MulterError && error.code === "LIMIT_FILE_SIZE") {
+      response.status(413).json({ message: "Image must be no larger than 2 MB" });
+      return;
+    }
+    if (error.statusCode === 400) {
+      response.status(400).json({ message: error.message });
+      return;
+    }
+    next(error);
+  });
+}
 
 const productValidation = [
   body("name")
@@ -99,6 +134,47 @@ router.get(
         totalPages: Math.ceil(total / limit),
         items
       });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+router.post(
+  "/:productId/image",
+  requireAuth,
+  allowRoles("vendor"),
+  handleImageUpload,
+  async (request, response, next) => {
+    if (!mongoose.isValidObjectId(request.params.productId)) {
+      response.status(400).json({ message: "Invalid product ID" });
+      return;
+    }
+    if (!request.file) {
+      response.status(400).json({ message: "Choose an image to upload" });
+      return;
+    }
+    if (!validateImageBuffer(request.file.buffer, request.file.mimetype)) {
+      response.status(400).json({ message: "File contents must be a valid JPG, PNG, or WebP image" });
+      return;
+    }
+    try {
+      const product = await Product.findOne({
+        _id: request.params.productId,
+        vendor: request.auth.id,
+        isActive: true
+      });
+      if (!product) {
+        response.status(404).json({ message: "Product not found" });
+        return;
+      }
+      product.imageUrl = await storeProductImage({
+        buffer: request.file.buffer,
+        mimetype: request.file.mimetype,
+        productId: product.id
+      });
+      await product.save();
+      response.json({ product });
     } catch (error) {
       next(error);
     }

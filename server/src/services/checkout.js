@@ -140,7 +140,7 @@ export async function createCheckout({
               subtotalCents,
               platformFeeCents,
               totalCents: subtotalCents,
-              currency: "USD",
+              currency: "NGN",
               idempotencyKey
             }
           ],
@@ -153,6 +153,7 @@ export async function createCheckout({
             product: product._id,
             vendor: product.vendor,
             name: product.name,
+            imageUrl: product.imageUrl || "",
             quantity,
             unitPriceCents: product.priceCents,
             lineTotalCents: product.priceCents * quantity
@@ -162,7 +163,7 @@ export async function createCheckout({
 
         const intent = await provider.createIntent({
           amountCents: subtotalCents,
-          currency: "USD",
+          currency: "NGN",
           idempotencyKey,
           email: buyer.email,
           name: buyer.name,
@@ -179,7 +180,7 @@ export async function createCheckout({
               providerReference: intent.id,
               paymentUrl: intent.paymentUrl || null,
               amountCents: subtotalCents,
-              currency: "USD",
+              currency: "NGN",
               status: "pending",
               idempotencyKey
             }

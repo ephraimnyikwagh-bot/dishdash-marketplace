@@ -82,7 +82,7 @@ const orderSchema = new mongoose.Schema(
       min: 1,
       validate: Number.isInteger
     },
-    currency: { type: String, required: true, uppercase: true, default: "USD" },
+    currency: { type: String, required: true, uppercase: true, default: "NGN" },
     payment: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Payment",

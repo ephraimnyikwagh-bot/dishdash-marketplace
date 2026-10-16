@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
+import { fileURLToPath } from "node:url";
 import authRoutes from "./routes/auth.js";
 import productsRoutes from "./routes/products.js";
 import cartRoutes from "./routes/cart.js";
@@ -13,12 +14,21 @@ import adminRoutes from "./routes/admin.js";
 import disputeRoutes from "./routes/disputes.js";
 
 const app = express();
+const uploadsDirectory = fileURLToPath(new URL("../uploads/", import.meta.url));
 
 const allowedOrigins = (process.env.CLIENT_ORIGIN || "http://localhost:5173")
   .split(",")
   .map((origin) => origin.trim());
 
-app.use(helmet());
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        "img-src": ["'self'", "data:", "https:"]
+      }
+    }
+  })
+);
 app.use(
   cors({
     origin(origin, callback) {
@@ -31,6 +41,13 @@ app.use(
   })
 );
 app.use(express.json({ limit: "20kb" }));
+app.use("/uploads", express.static(uploadsDirectory, {
+  fallthrough: true,
+  maxAge: process.env.NODE_ENV === "production" ? "1d" : 0,
+  immutable: false,
+  dotfiles: "deny",
+  index: false
+}));
 
 app.get("/api/health", (_request, response) => {
   response.json({ status: "ok" });

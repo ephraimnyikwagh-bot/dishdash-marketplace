@@ -16,15 +16,9 @@ import api, { getErrorMessage } from "../api.js";
 import Loading from "../components/Loading.jsx";
 import Notice from "../components/Notice.jsx";
 import { StatusBadge } from "./OrdersPage.jsx";
+import { formatPrice } from "../money.js";
 
 const colors = ["#ea580c", "#16a34a", "#2563eb", "#7c3aed", "#eab308", "#dc2626"];
-
-function money(cents) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD"
-  }).format((cents || 0) / 100);
-}
 
 function MetricCard({ title, value, detail }) {
   return (
@@ -95,17 +89,17 @@ export default function AdminDashboardPage({ ordersOnly = false }) {
             <MetricCard
               detail={`${dashboard.ordersByStatus?.Paid || 0} paid / processing`}
               title="Transaction volume"
-              value={money(dashboard.transactionVolumeCents)}
+              value={formatPrice(dashboard.transactionVolumeCents)}
             />
             <MetricCard
               detail="Paid and delivered orders"
               title="Platform fee revenue · 7 days"
-              value={money(dashboard.platformFeeRevenue.last7DaysCents)}
+              value={formatPrice(dashboard.platformFeeRevenue.last7DaysCents)}
             />
             <MetricCard
               detail="Net platform fees, last 30 days"
               title="Platform fee revenue · 30 days"
-              value={money(dashboard.platformFeeRevenue.last30DaysCents)}
+              value={formatPrice(dashboard.platformFeeRevenue.last30DaysCents)}
             />
             <MetricCard
               detail={`${dashboard.openDisputes} open disputes`}
@@ -123,7 +117,7 @@ export default function AdminDashboardPage({ ordersOnly = false }) {
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="date" tick={{ fontSize: 11 }} />
                     <YAxis tick={{ fontSize: 11 }} />
-                    <Tooltip formatter={(value) => money(value)} />
+                    <Tooltip formatter={(value) => formatPrice(value)} />
                     <Bar dataKey="volumeCents" fill="#ea580c" radius={[5, 5, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -195,7 +189,7 @@ export default function AdminDashboardPage({ ordersOnly = false }) {
                   </td>
                   <td className="px-5 py-3">{order.buyer?.email}</td>
                   <td className="px-5 py-3">{order.vendor?.name}</td>
-                  <td className="px-5 py-3">{money(order.totalCents)}</td>
+                  <td className="px-5 py-3">{formatPrice(order.totalCents)}</td>
                   <td className="px-5 py-3"><StatusBadge status={order.status} /></td>
                   <td className="px-5 py-3">{new Date(order.createdAt).toLocaleDateString()}</td>
                 </tr>

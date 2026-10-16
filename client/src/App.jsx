@@ -11,6 +11,7 @@ import {
 import { setUnauthorizedHandler } from "./api.js";
 import { AuthProvider, useAuth } from "./auth.jsx";
 import { CartProvider, useCart } from "./cart.jsx";
+import BrandLogo from "./components/BrandLogo.jsx";
 import { LoginPage, RegisterPage } from "./pages/AuthPages.jsx";
 import CatalogPage from "./pages/CatalogPage.jsx";
 import CartPage from "./pages/CartPage.jsx";
@@ -63,6 +64,7 @@ function Navbar() {
   const { connected, updates, clearUpdates } = useRealtime();
   const navigate = useNavigate();
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   function handleLogout() {
     logout();
@@ -71,7 +73,7 @@ function Navbar() {
 
   return (
     <header className="sticky top-0 z-20 border-b border-orange-100 bg-white/95 backdrop-blur">
-      <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
+      <div className="relative mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
         <Link
           aria-label="DishDash home"
           className="flex shrink-0 items-center gap-2"
@@ -87,12 +89,32 @@ function Navbar() {
               : "/login"
           }
         >
-          <img alt="" className="h-10 w-10 rounded-xl" src="/logo.png" />
+          <BrandLogo />
           <span className="text-xl font-black tracking-tight text-slate-900">
             Dish<span className="text-orange-600">Dash</span>
           </span>
         </Link>
-        <nav className="flex items-center gap-2 sm:gap-4">
+        <button
+          aria-expanded={mobileMenuOpen}
+          aria-label={mobileMenuOpen ? "Close navigation menu" : "Open navigation menu"}
+          className="rounded-xl border border-slate-200 p-2 text-slate-700 md:hidden"
+          onClick={() => setMobileMenuOpen((open) => !open)}
+          type="button"
+        >
+          <svg aria-hidden="true" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+            {mobileMenuOpen ? (
+              <path d="m6 6 12 12M18 6 6 18" strokeLinecap="round" />
+            ) : (
+              <path d="M4 6h16M4 12h16M4 18h16" strokeLinecap="round" />
+            )}
+          </svg>
+        </button>
+        <nav
+          className={`${mobileMenuOpen ? "absolute left-0 right-0 top-full z-30 flex max-h-[calc(100vh-5rem)] flex-col items-stretch overflow-y-auto border-b border-orange-100 bg-white p-3 shadow-xl md:static md:max-h-none md:flex-row md:items-center md:overflow-visible md:border-0 md:bg-transparent md:p-0 md:shadow-none" : "hidden md:flex"} gap-2 md:gap-3`}
+          onClick={(event) => {
+            if (event.target.closest("a")) setMobileMenuOpen(false);
+          }}
+        >
           {user?.role === "buyer" && (
             <>
               <Link className="nav-link" to="/catalog">

@@ -20,6 +20,7 @@ const orderItemSchema = new mongoose.Schema(
       index: true
     },
     name: { type: String, required: true, trim: true, maxlength: 160 },
+    imageUrl: { type: String, trim: true, default: "" },
     quantity: {
       type: Number,
       required: true,

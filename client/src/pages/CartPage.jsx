@@ -5,13 +5,7 @@ import { useCart } from "../cart.jsx";
 import Loading from "../components/Loading.jsx";
 import Notice from "../components/Notice.jsx";
 import ProductImage from "../components/ProductImage.jsx";
-
-function formatPrice(cents) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD"
-  }).format((cents || 0) / 100);
-}
+import { formatPrice } from "../money.js";
 
 export default function CartPage() {
   const navigate = useNavigate();
