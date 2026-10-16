@@ -65,7 +65,11 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/disputes", disputeRoutes);
 
 app.use((error, _request, response, _next) => {
-  console.error("Unhandled API error:", error);
+  console.error("Unhandled API error", {
+    name: error.name,
+    code: error.code,
+    statusCode: error.statusCode
+  });
   if (error.statusCode === 503) {
     response.status(503).json({ message: error.message });
     return;

@@ -43,5 +43,7 @@ const orderItemSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+orderItemSchema.index({ vendor: 1, order: 1 });
+
 export default mongoose.models.OrderItem ||
   mongoose.model("OrderItem", orderItemSchema);

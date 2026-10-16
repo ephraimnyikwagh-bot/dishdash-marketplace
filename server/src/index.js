@@ -14,6 +14,9 @@ try {
     console.log(`Food marketplace API listening on port ${port}`);
   });
 } catch (error) {
-  console.error("Failed to start the API:", error);
+  console.error("Failed to start the API.", {
+    name: error?.name || "Error",
+    code: error?.code || "UNKNOWN"
+  });
   process.exitCode = 1;
 }

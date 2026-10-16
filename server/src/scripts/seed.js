@@ -168,13 +168,15 @@ async function seed() {
   console.info(
     `Seed complete: ${demoUsers.length} demo users and ${dishes.length} menu items are ready.`
   );
-  console.info(`Shared demo password: ${demoPassword}`);
 }
 
 try {
   await seed();
 } catch (error) {
-  console.error("Demo seed failed:", error);
+  console.error("Demo seed failed.", {
+    name: error?.name || "Error",
+    code: error?.code || "UNKNOWN"
+  });
   process.exitCode = 1;
 } finally {
   await mongoose.disconnect();

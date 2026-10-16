@@ -59,7 +59,7 @@ const productValidation = [
     .withMessage("Description is too long"),
   body("imageUrl")
     .optional({ values: "falsy" })
-    .isURL()
+    .isURL({ protocols: ["http", "https"], require_protocol: true })
     .withMessage("Image URL must be valid"),
   body("priceCents")
     .isInt({ min: 1 })
@@ -97,7 +97,13 @@ router.get(
       .isString()
       .trim()
       .isLength({ max: 120 })
-      .withMessage("Search term is too long")
+      .withMessage("Search term is too long"),
+    query("category")
+      .optional()
+      .isString()
+      .trim()
+      .isLength({ max: 80 })
+      .withMessage("Category filter is too long")
   ],
   async (request, response, next) => {
     if (sendValidationErrors(request, response)) return;
@@ -185,13 +191,31 @@ router.get(
   "/mine",
   requireAuth,
   allowRoles("vendor"),
-  async (_request, response, next) => {
+  [
+    query("page").optional().isInt({ min: 1 }),
+    query("limit").optional().isInt({ min: 1, max: 50 })
+  ],
+  async (request, response, next) => {
+    if (sendValidationErrors(request, response)) return;
+    const page = Number(request.query.page ?? 1);
+    const limit = Number(request.query.limit ?? 50);
     try {
-      const products = await Product.find({ vendor: _request.auth.id, isActive: true })
-        .sort({ createdAt: -1 })
-        .lean();
-
-      response.json({ products });
+      const filter = { vendor: request.auth.id, isActive: true };
+      const [products, total] = await Promise.all([
+        Product.find(filter)
+          .sort({ createdAt: -1 })
+          .skip((page - 1) * limit)
+          .limit(limit)
+          .lean(),
+        Product.countDocuments(filter)
+      ]);
+      response.json({
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+        products
+      });
     } catch (error) {
       next(error);
     }

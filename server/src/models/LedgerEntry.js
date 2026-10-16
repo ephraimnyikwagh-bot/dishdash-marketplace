@@ -28,6 +28,7 @@ const ledgerEntrySchema = new mongoose.Schema(
 );
 
 ledgerEntrySchema.index({ order: 1, createdAt: 1 });
+ledgerEntrySchema.index({ createdAt: -1 });
 
 export default mongoose.models.LedgerEntry ||
   mongoose.model("LedgerEntry", ledgerEntrySchema);

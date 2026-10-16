@@ -7,7 +7,7 @@ import { allowRoles, requireAuth } from "../middleware/auth.js";
 const router = Router();
 
 const cartItemValidation = [
-  body("productId").notEmpty().withMessage("Product ID is required"),
+  body("productId").isMongoId().withMessage("A valid product ID is required"),
   body("quantity")
     .isInt({ min: 1, max: 99 })
     .withMessage("Quantity must be between 1 and 99")

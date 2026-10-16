@@ -18,9 +18,10 @@ export async function checkTransactionSupport(
 
     return supported;
   } catch (error) {
-    logger.warn(
-      `MongoDB is connected, but transaction support could not be verified: ${error.message}`
-    );
+    logger.warn("MongoDB is connected, but transaction support could not be verified.", {
+      name: error?.name || "Error",
+      code: error?.code || "UNKNOWN"
+    });
     return false;
   }
 }

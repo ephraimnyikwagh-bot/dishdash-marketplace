@@ -1,66 +1,187 @@
 # DishDash
 
-DishDash is an on-demand food delivery marketplace MVP. It currently includes
-authentication/RBAC, vendor catalog management, buyer carts, transaction-backed
-checkout, mock and Flutterwave TEST payment providers, an idempotent payment
-webhook, a double-entry ledger, order views, and a React SPA for buyers and
-vendors, live courier tracking, PDF receipts, and admin reporting and dispute
-management.
+DishDash is a final-year-project MVP for on-demand Nigerian food delivery. It
+combines a responsive React SPA with a stateless Express API, MongoDB/Mongoose
+transactions, JWT/RBAC, sandbox payments, double-entry ledger, PDF receipts,
+and Socket.IO delivery updates.
+
+The project demonstrates the main marketplace roles and workflow end-to-end:
+buyers order food; vendors manage menus and prepare orders; couriers deliver
+them; admins audit transactions and resolve disputes. See
+[the 10-minute demo script](./docs/DEMO-SCRIPT.md) and
+[PRD traceability matrix](./docs/PRD-TRACEABILITY.md).
+
+## Architecture
+
+```mermaid
+flowchart LR
+  Buyer[Buyer browser] --> SPA[React + Vite SPA]
+  Vendor[Vendor browser] --> SPA
+  Courier[Courier browser] --> SPA
+  Admin[Admin browser] --> SPA
+  SPA -->|REST / JSON + JWT| API[Express REST API]
+  SPA <-->|Socket.IO + JWT| Realtime[Socket.IO server]
+  API --> Auth[Auth / RBAC / validation]
+  API --> Mongo[(MongoDB replica set / Atlas)]
+  API --> Pay[Payment provider interface]
+  Pay --> Mock[Mock sandbox]
+  Pay --> FLW[Flutterwave TEST]
+  API --> Images[Image storage service]
+  Images --> Local[server/uploads in development]
+  Images --> Cloudinary[Cloudinary in production]
+  API --> PDF[PDFKit receipts]
+  Realtime --> Mongo
+```
+
+## Database model
+
+```mermaid
+erDiagram
+  USER ||--o{ PRODUCT : owns
+  USER ||--o| CART : has
+  CART }o--o{ PRODUCT : contains
+  USER ||--o{ ORDER : buys
+  USER ||--o{ ORDER : fulfills
+  USER o|--o{ ORDER : delivers
+  ORDER ||--|{ ORDER_ITEM : contains
+  PRODUCT ||--o{ ORDER_ITEM : snapshot
+  ORDER ||--o| PAYMENT : paid_by
+  ORDER ||--o{ LEDGER_ENTRY : posts
+  ORDER ||--o| RECEIPT : issues
+  ORDER ||--o| DISPUTE : may_have
+  PAYMENT ||--o{ WEBHOOK_EVENT : receives
+
+  USER {
+    ObjectId id PK
+    string name
+    string email UK
+    string passwordHash
+    string role
+    boolean isActive
+  }
+  PRODUCT {
+    ObjectId id PK
+    ObjectId vendor FK
+    string name
+    int priceCents
+    int stock
+    string imageUrl
+    string category
+    boolean isActive
+  }
+  CART {
+    ObjectId id PK
+    ObjectId buyer FK UK
+    array items
+  }
+  ORDER {
+    ObjectId id PK
+    ObjectId buyer FK
+    ObjectId vendor FK
+    ObjectId courier FK
+    string status
+    int totalCents
+    string currency
+    string idempotencyKey UK
+  }
+  ORDER_ITEM {
+    ObjectId id PK
+    ObjectId order FK
+    ObjectId product FK
+    int quantity
+    int unitPriceCents
+    int lineTotalCents
+  }
+  PAYMENT {
+    ObjectId id PK
+    ObjectId order FK UK
+    string provider
+    string providerReference UK
+    int amountCents
+    string status
+  }
+  LEDGER_ENTRY {
+    ObjectId id PK
+    ObjectId order FK
+    string account
+    string direction
+    int amountCents
+    string idempotencyKey UK
+  }
+  RECEIPT {
+    ObjectId id PK
+    ObjectId order FK UK
+    string receiptNumber UK
+    binary pdfData
+  }
+  DISPUTE {
+    ObjectId id PK
+    ObjectId order FK UK
+    ObjectId buyer FK
+    string reason
+    string status
+  }
+  WEBHOOK_EVENT {
+    ObjectId id PK
+    string eventId UK
+    string provider
+    string type
+  }
+```
 
 ## Requirements
 
-- Node.js 20 or newer
-- MongoDB Atlas replica-set cluster, or Docker Desktop for optional local MongoDB
+- Node.js 20 or later and npm
+- MongoDB Atlas replica-set cluster (recommended for demo) or Docker Desktop for
+  the optional local replica set
+- Internet access on the first test run if `mongodb-memory-server` needs to
+  fetch its MongoDB binary
 
-Docker is optional. The server reads `MONGODB_URI` from `server/.env` and can
-connect directly to Atlas. Multi-document transactions require a replica-set or
-sharded MongoDB deployment; startup logs the connection and warns if transaction
-support cannot be verified.
+Multi-document checkout/refund transactions require a replica set or sharded
+MongoDB deployment. Docker is optional; the API reads `MONGODB_URI` from
+`server/.env` and connects directly to Atlas.
 
-## Setup and run
+## Setup
 
-1. Copy `.env.example` to `server/.env`. Set `MONGODB_URI`, a random
-   `JWT_SECRET` of at least 32 characters, and a separate
-   `ADMIN_REGISTRATION_KEY`. Defaults to the offline mock payment provider.
-2. In Atlas, allow your development IP and ensure the database user has the
-   required read/write permissions.
-3. Install and start the API:
+### MongoDB Atlas
 
-   ```powershell
-   Set-Location server
-   npm.cmd install
-   npm.cmd run dev
-   ```
+1. Create an Atlas database user with read/write access.
+2. Add your current public IP to **Network Access → IP Access List**.
+3. Copy the replica-set connection string from Atlas. URL-encode special
+   characters in the database password.
 
-4. Copy `client/.env.example` to `client/.env`. Set `VITE_API_URL` to
-   `http://localhost:4000/api`; ensure `CLIENT_ORIGIN` in `server/.env` includes
-   `http://localhost:5173`.
-5. Install and start the SPA in a second terminal:
+### Install and configure
 
-   ```powershell
-   Set-Location client
-   npm.cmd install
-   npm.cmd run dev
-   ```
-
-   Open `http://localhost:5173`. The API health endpoint is
-   `http://localhost:4000/api/health`.
-
-## Demo data
-
-After configuring `server/.env` and starting MongoDB, seed the demo accounts
-and menu from a PowerShell terminal:
+From the repository root:
 
 ```powershell
-Set-Location server
+npm.cmd run install-all
+Copy-Item .env.example server/.env
+Copy-Item client/.env.example client/.env
+```
+
+Edit `server/.env`; set `MONGODB_URI`, a unique random `JWT_SECRET` of at least
+32 characters, and a separate `ADMIN_REGISTRATION_KEY`. For the default
+offline demo, keep `PAYMENT_PROVIDER=mock`. In `client/.env`, keep
+`VITE_API_URL=http://localhost:4000/api`. The server `CLIENT_ORIGIN` must list
+the browser origin (normally `http://localhost:5173`).
+
+Start both apps from the repository root:
+
+```powershell
+npm.cmd run dev
+```
+
+This runs the API on `http://localhost:4000` and Vite on
+`http://localhost:5173`. Check `http://localhost:4000/api/health`.
+
+Seed a development database in another terminal:
+
+```powershell
 npm.cmd run seed
 ```
 
-The command is safe to repeat: it updates the four demo users and upserts the
-ten menu items without creating duplicates. It refuses to run when
-`NODE_ENV=production`.
-
-All demo accounts share the password `DishDashDemo2026!`:
+Seed users share `DishDashDemo2026!`:
 
 | Role | Email |
 | --- | --- |
@@ -69,297 +190,209 @@ All demo accounts share the password `DishDashDemo2026!`:
 | Courier | `courier@dishdash.demo` |
 | Admin | `admin@dishdash.demo` |
 
-### Optional local MongoDB replica set
+The seed script is idempotent and refuses to run with `NODE_ENV=production`.
+These public demo credentials are for development only.
 
-Docker Compose is only an optional local convenience:
+### Optional Docker MongoDB
 
 ```powershell
 docker compose up -d mongo
 ```
 
-Use `MONGODB_URI=mongodb://localhost:27017/food_marketplace?replicaSet=rs0`
-in `server/.env`. Stop the service with `docker compose down`; add `-v` only if
-you intend to remove the persisted local database volume.
+Set this URI in `server/.env`:
+
+```text
+MONGODB_URI=mongodb://localhost:27017/food_marketplace?replicaSet=rs0
+```
+
+Stop MongoDB with `docker compose down`. Add `-v` only when you intentionally
+want to remove its persisted database volume.
 
 ## Environment variables
 
-| Variable | Purpose |
-| --- | --- |
-| `NODE_ENV` | Runtime environment; mock simulations and Flutterwave are disabled in production |
-| `PORT` | API port (default `4000`) |
-| `CLIENT_ORIGIN` | Comma-separated allowed browser origins |
-| `MONGODB_URI` | MongoDB Atlas or local replica-set connection string |
-| `JWT_SECRET` | Random JWT signing secret, at least 32 characters |
-| `JWT_EXPIRES_IN` | JWT lifetime (default `7d`) |
-| `ADMIN_REGISTRATION_KEY` | Separate secret required for admin registration |
-| `PAYMENT_PROVIDER` | `mock` (default) or `flutterwave` |
-| `FLW_SECRET_KEY` | Flutterwave TEST secret key; required only for Flutterwave |
-| `FLW_PUBLIC_KEY` | Flutterwave TEST public key; required only for Flutterwave |
-| `FLW_WEBHOOK_HASH` | Flutterwave webhook verification hash |
-| `FLW_BASE_URL` | Optional; if set, must be `https://api.flutterwave.com/v3` |
-| `FLW_REDIRECT_URL` | Optional hosted-payment redirect destination; defaults to the client return page |
-| `PLATFORM_FEE_BPS` | Platform fee in basis points (default `1000`, 10%) |
-| `CLOUDINARY_CLOUD_NAME` | Cloudinary cloud name; required for production image uploads |
-| `CLOUDINARY_API_KEY` | Cloudinary API key; required for production image uploads |
-| `CLOUDINARY_API_SECRET` | Cloudinary API secret; required for production image uploads |
-| `VITE_API_URL` | Client API base URL, normally `http://localhost:4000/api` |
+| Variable | Location | Purpose |
+| --- | --- | --- |
+| `NODE_ENV` | Server | Runtime mode; mock simulation/Flutterwave TEST provider are not production payment methods |
+| `PORT` | Server | HTTP port (default `4000`) |
+| `CLIENT_ORIGIN` | Server | Comma-separated permitted CORS/Socket.IO origins |
+| `MONGODB_URI` | Server | Atlas or local replica-set URI |
+| `JWT_SECRET` | Server | JWT signing secret, at least 32 characters |
+| `JWT_EXPIRES_IN` | Server | JWT lifetime (default `7d`) |
+| `ADMIN_REGISTRATION_KEY` | Server | Secret required for admin registration |
+| `PAYMENT_PROVIDER` | Server | `mock` (default) or `flutterwave` TEST |
+| `FLW_SECRET_KEY` | Server | Flutterwave TEST secret |
+| `FLW_PUBLIC_KEY` | Server | Flutterwave TEST public key |
+| `FLW_WEBHOOK_HASH` | Server | Expected Flutterwave webhook verification hash |
+| `FLW_BASE_URL` | Server | Must be `https://api.flutterwave.com/v3` |
+| `FLW_REDIRECT_URL` | Server | Hosted checkout return URL |
+| `PLATFORM_FEE_BPS` | Server | Platform commission in basis points (default `1000`, 10%) |
+| `CLOUDINARY_CLOUD_NAME` | Server | Cloudinary account for production product images |
+| `CLOUDINARY_API_KEY` | Server | Cloudinary upload key |
+| `CLOUDINARY_API_SECRET` | Server | Cloudinary signing secret |
+| `VITE_API_URL` | Client | API base URL (default `http://localhost:4000/api`) |
+| `LOAD_BASELINE_USERS` | Load test | Concurrent baseline buyers, integer 1–8 (default 8) |
+| `LOAD_CATALOG_SECONDS` | Load test | Catalog benchmark duration per scenario in seconds (default 5) |
 
-Never commit any `.env` file. Card details are collected only by Flutterwave's
-hosted checkout and are never stored by DishDash.
+Never commit `.env` files. Hosted Flutterwave checkout collects payment data;
+DishDash does not receive or store raw card details. Do not use demo credentials
+or payment keys in production.
 
-## Authentication and roles
+## API endpoint list
 
-All API routes below are prefixed with `/api`.
+All listed endpoints require a JWT and role access as shown, except public
+`GET /api/health` and `POST /api/payments/webhook`; the webhook is protected by
+provider signature and transaction verification. Protected requests use
+`Authorization: Bearer <token>`.
 
-| Method | Endpoint | Access | Description |
+| Method | Endpoint | Access | Purpose |
 | --- | --- | --- | --- |
-| `POST` | `/auth/register` | Public, rate limited | Register buyer/vendor/courier, or admin with the registration key |
-| `POST` | `/auth/login` | Public, rate limited | Authenticate and receive a JWT |
-| `GET` | `/auth/me` | Authenticated | Return the signed-in user's public profile |
-| `GET` | `/health` | Public | API health check |
+| `GET` | `/api/health` | Public | Health check |
+| `POST` | `/api/auth/register` | Public, rate limited | Register buyer, vendor, courier, or keyed admin |
+| `POST` | `/api/auth/login` | Public, rate limited | Login |
+| `GET` | `/api/auth/me` | Authenticated | Current user |
+| `GET` | `/api/products?q=&category=&page=1&limit=12` | Authenticated | Search/browse active catalog |
+| `GET` | `/api/products/mine?page=1&limit=50` | Vendor | List own products |
+| `GET` | `/api/products/:productId` | Authenticated | Read active product |
+| `POST` | `/api/products` | Vendor | Create a product |
+| `PATCH` | `/api/products/:productId` | Owning vendor | Update product/inventory |
+| `DELETE` | `/api/products/:productId` | Owning vendor | Deactivate product |
+| `POST` | `/api/products/:productId/image` | Owning vendor | Multipart field `image`: JPG/PNG/WebP, max 2 MB |
+| `GET` | `/api/cart` | Buyer | View cart |
+| `POST` | `/api/cart/items` | Buyer | Add `{ productId, quantity }` |
+| `PATCH` | `/api/cart/items/:productId` | Buyer | Set quantity |
+| `DELETE` | `/api/cart/items/:productId` | Buyer | Remove item |
+| `POST` | `/api/checkout` | Buyer, rate limited | Start idempotent transactional checkout |
+| `GET` | `/api/payments/:paymentId` | Owning buyer | Read own payment |
+| `POST` | `/api/payments/:paymentId/simulate` | Owning buyer, dev mock only | Simulate success/failure/expiry |
+| `POST` | `/api/payments/webhook` | Signed Flutterwave webhook | Verify and process provider event |
+| `GET` | `/api/orders?page=1&limit=10` | Buyer/vendor/courier/admin | Role-scoped paginated orders |
+| `GET` | `/api/orders/:orderId` | Involved buyer/vendor/courier/admin | Order and item details |
+| `GET` | `/api/orders/:orderId/receipt` | Owning buyer/vendor/admin | Download PDF receipt |
+| `PATCH` | `/api/orders/:orderId/status` | Buyer/vendor | Buyer cancels Pending; vendor marks Paid as Shipped |
+| `GET` | `/api/courier/available?page=1&limit=10` | Courier | Available Shipped deliveries |
+| `POST` | `/api/courier/:orderId/accept` | Courier | Atomically accept delivery |
+| `GET` | `/api/courier/deliveries?page=1&limit=10` | Courier | Own deliveries |
+| `POST` | `/api/courier/:orderId/delivered` | Assigned courier | Mark Delivered |
+| `GET` | `/api/admin/dashboard` | Admin | Activity and revenue summaries |
+| `GET` | `/api/admin/orders?page=1&limit=20&status=` | Admin | All paginated orders |
+| `GET` | `/api/admin/users?page=1&limit=20&role=` | Admin | All paginated users |
+| `GET` | `/api/ledger/entries?page=1&limit=25&from=&to=&orderId=` | Admin | Filtered ledger audit |
+| `GET` | `/api/ledger/integrity` | Admin | Debit/credit totals by currency |
+| `POST` | `/api/disputes` | Buyer | Report an owned Paid/Delivered order |
+| `GET` | `/api/disputes?page=1&limit=20` | Buyer/admin | Own/all disputes |
+| `PATCH` | `/api/disputes/:disputeId` | Admin | Mark Under review, Resolved, or Refunded |
+| `GET` | `/uploads/:filename` | Public | Serve local development uploads |
 
-Registration takes `name`, `email`, `password`, and optional `role` (defaults
-to `buyer`). Admin registration also requires `adminRegistrationKey`. Passwords
-are bcrypt-hashed. Send `Authorization: Bearer <token>` on protected requests.
+Socket.IO authenticates with the same JWT and emits `order:updated` to the
+involved buyer, vendor, and courier. Product/order/payment/ledger amounts are
+stored as integer minor units and displayed as NGN with two decimals. Flutterwave
+is sandbox/test-only in this project. For Flutterwave, configure TEST credentials
+and webhook hash on the server, then use hosted test checkout; never expose
+server secrets to the client.
 
-## Catalog, cart, and orders
+## Tests, lint, build, and load test
 
-| Method | Endpoint | Access | Description |
-| --- | --- | --- | --- |
-| `GET` | `/products?q=wrap&page=1&limit=12` | Authenticated | Search and paginate active products |
-| `GET` | `/products/:productId` | Authenticated | Read an active product |
-| `GET` | `/products/mine` | Vendor | List own products |
-| `POST` | `/products` | Vendor | Create a product |
-| `POST` | `/products/:productId/image` | Owning vendor | Upload a JPG, PNG, or WebP product image (2 MB maximum, multipart field `image`) |
-| `PATCH` | `/products/:productId` | Owning vendor | Update product and inventory |
-| `DELETE` | `/products/:productId` | Owning vendor | Deactivate/remove a product |
-| `GET` | `/cart` | Buyer | Read cart and total in integer kobo |
-| `POST` | `/cart/items` | Buyer | Add `{ "productId": "...", "quantity": 1 }` |
-| `PATCH` | `/cart/items/:productId` | Buyer | Set quantity |
-| `DELETE` | `/cart/items/:productId` | Buyer | Remove a cart item |
-| `POST` | `/checkout` | Buyer | Reserve inventory and create an order/payment |
-| `GET` | `/orders?page=1&limit=10` | Buyer/vendor/admin | List own, related, or all orders, respectively |
-| `GET` | `/orders/:orderId` | Buyer/vendor/admin | Read an accessible order and its items |
-
-Product prices and all order/ledger money values are integer kobo (minor units)
-and are displayed as NGN with two decimal places. Product and
-order listing endpoints are paginated. Checkout currently requires all items
-in the cart to belong to the same vendor.
-
-Product photos are stored in `server/uploads` and served under `/uploads/` in
-development. The upload route verifies both the declared MIME type and file
-signature. Production uploads use signed Cloudinary uploads; configure the
-three `CLOUDINARY_*` variables in `server/.env` before enabling production
-image uploads. Never commit `.env` files or uploaded image files.
-
-Optional seed photos go in `server/seed-images`. Use the dish slug as the
-filename (for example `smoky-jollof-rice.jpg`); see
-[server/seed-images/README.md](./server/seed-images/README.md). Products without
-a matching seed photo keep the placeholder URL.
-
-## Mock checkout (default, no keys)
-
-With `PAYMENT_PROVIDER=mock` (or unset), the browser flow is:
-
-1. Log in as a buyer, add a product to the cart, and click **Checkout**.
-2. On the payment page, click **Simulate success** or **Simulate failure**.
-3. Check the resulting order under **Orders**.
-
-Simulation is development-only; the API does not expose it when
-`NODE_ENV=production`. No card details are requested or stored. On success, the
-payment and order are marked paid and balanced ledger entries are written in a
-MongoDB transaction. On failure/expiry, the order is marked failed and reserved
-stock is restored.
-
-## Flutterwave TEST checkout
-
-Set `PAYMENT_PROVIDER=flutterwave` and provide only Flutterwave TEST credentials
-in `server/.env`:
-
-```text
-FLW_SECRET_KEY=FLWSECK_TEST-...
-FLW_PUBLIC_KEY=FLWPUBK_TEST-...
-FLW_WEBHOOK_HASH=...
-FLW_BASE_URL=https://api.flutterwave.com/v3
-FLW_REDIRECT_URL=http://localhost:5173/payment/return
-```
-
-Restart the API, then use the same buyer checkout flow. The payment page sends
-the buyer to Flutterwave's hosted test checkout. The API verifies the
-`verif-hash` webhook header and independently verifies the transaction amount,
-currency, and reference with Flutterwave before updating the order or ledger.
-Flutterwave mode is restricted to non-production and rejects live-mode keys.
-Do not expose any `FLW_*` secret to the client.
-
-## Checkout and ledger guarantees
-
-`POST /api/checkout` requires an `Idempotency-Key` header (8-128 characters).
-The key is scoped to the buyer. The server validates current product state and
-price, conditionally decrements stock within a MongoDB session transaction,
-creates the order/items/payment intent, and clears the cart. An unavailable
-payment provider aborts the database transaction. A unique order key prevents
-retries from reserving inventory twice; providers receive a stable idempotency
-reference.
-
-Payment notifications are processed at `POST /api/payments/webhook`. Duplicate
-event IDs are ignored, and terminal order/payment checks prevent duplicate
-ledger writes. Successful payment creates balanced debit/credit lines for buyer
-clearing, vendor payable, and (when nonzero) platform revenue. All ledger
-entries are integer kobo.
-
-| Method | Endpoint | Access | Description |
-| --- | --- | --- | --- |
-| `POST` | `/checkout` | Buyer | Start checkout; requires `Idempotency-Key` |
-| `GET` | `/payments/:paymentId` | Owning buyer | Read payment status/details |
-| `POST` | `/payments/:paymentId/simulate` | Owning buyer, development mock only | Simulate `succeeded`, `failed`, or `expired` |
-| `POST` | `/payments/webhook` | Flutterwave signature | Verify Flutterwave event and process payment |
-| `GET` | `/ledger/integrity` | Admin | Check debit/credit totals per currency |
-
-The mock simulation route is for local demos, not a production webhook
-substitute. Flutterwave's webhook is the externally verified payment flow.
-
-## Order lifecycle and live updates (Phase 5)
-
-Order statuses are `Pending`, `Paid`, `Shipped`, `Delivered`, `Failed`, and
-`Cancelled`. The supported fulfillment transitions are `Paid` to `Shipped` by
-the owning vendor, then `Shipped` to `Delivered` by the assigned courier. A
-buyer may cancel only a `Pending` order. Invalid transitions return HTTP 409
-with the current and requested states; requests by the wrong role are rejected.
-Every status transition appends the status, actor/role, and timestamp to the
-order's `statusHistory`.
-
-| Method | Endpoint | Access | Description |
-| --- | --- | --- | --- |
-| `PATCH` | `/orders/:orderId/status` | Buyer/vendor | Buyer cancels a pending order; owning vendor marks paid order shipped |
-| `GET` | `/courier/available?page=1&limit=10` | Courier | List unassigned shipped orders |
-| `POST` | `/courier/:orderId/accept` | Courier | Atomically accept an available delivery |
-| `GET` | `/courier/deliveries?page=1&limit=10` | Courier | List assigned and completed deliveries |
-| `POST` | `/courier/:orderId/delivered` | Assigned courier | Mark an accepted order delivered |
-
-The API Socket.IO server authenticates connections using the same JWT as REST
-requests. Clients join their own `user:<userId>` room automatically and may
-join an authorized `order:<orderId>` room using `order:join`. Status and
-assignment updates are emitted as `order:updated` to the buyer, vendor, and
-assigned courier. The client provides a buyer order timeline, vendor
-ship-ready action, courier dashboard, toast messages, and a recent-updates bell.
-
-To demo with three browser windows, sign in separately as
-`buyer@dishdash.demo`, `vendor@dishdash.demo`, and `courier@dishdash.demo`
-(shared password `DishDashDemo2026!`). Pay for a buyer order, open its details
-in the buyer window, mark it shipped from the vendor's Incoming orders, then
-accept and deliver it in the courier dashboard. The buyer timeline and all
-involved notification bells update live.
-
-## Image handling and UI polish (Phase 7)
-
-The DishDash PNG logo is used in the app header, sign-in/sign-up card, browser
-favicon, and PDF receipt header. If the PNG cannot load, the client uses
-`client/public/brand-mark.svg`; receipts draw an orange DD mark when the PNG is
-missing. Product cards, cart lines, vendor listings, and order details lazy-load
-images with accessible alt text and a food placeholder fallback.
-
-Vendors upload a product photo from the add/edit product form. The browser
-previews the selection and accepts JPG, PNG, and WebP files up to 2 MB. The
-server also checks the declared type and image signature and only allows a
-vendor to change images on their own active products. In development, uploads
-are stored under `server/uploads` and served by the API. In production, the
-image storage service uploads signed files to Cloudinary; configure the
-`CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET`
-values in `server/.env`. Uploaded files and `.env` files must not be committed.
-
-Register as buyer, vendor, or courier from the sign-up page. Admin signup
-requires the server's `ADMIN_REGISTRATION_KEY`; alternatively, use the seeded
-admin demo login. All visible product, cart, order, payment, admin, and ledger
-amounts use NGN formatting with two decimal places.
-
-### Phase 7 browser walkthrough
-
-1. Start the API and client as described in Setup, then run
-   `Set-Location server; npm.cmd run seed` if the database is empty.
-2. Sign up or log in as the buyer and check the logo, food photos, and NGN
-   prices in the menu, cart, and order details.
-3. Log out and sign up as a vendor. Add a product, choose a JPG/PNG/WebP photo,
-   and check its preview and listing. Edit the product and replace the image.
-   Try a GIF or an image over 2 MB; both should be rejected.
-4. Sign out and create a courier account through sign-up, then confirm its
-   delivery dashboard and logout are available.
-5. Try registering an admin with a blank or incorrect key; the API must reject
-   it. For the demo admin UI, sign in as `admin@dishdash.demo` with the seeded
-   shared password and check the responsive dashboard navigation.
-
-## Receipts, admin, and disputes (Phase 6)
-
-Every successful payment creates a reusable PDF receipt. Downloading a receipt
-requires an authenticated buyer who owns the order, its vendor, or an admin.
-The PDF contains the order/payment reference, buyer and vendor, items,
-quantities, integer-cent prices formatted as NGN, subtotal, fee, and total.
-The DishDash logo is included when `client/public/logo.png` is available.
-
-| Method | Endpoint | Access | Description |
-| --- | --- | --- | --- |
-| `GET` | `/orders/:orderId/receipt` | Owning buyer, involved vendor, admin | Download the generated PDF receipt |
-| `POST` | `/disputes` | Buyer | Raise a dispute for an owned Paid or Delivered order with `{ "orderId": "...", "reason": "..." }` |
-| `GET` | `/disputes?page=1&limit=20` | Buyer/admin | List own disputes or all disputes |
-| `PATCH` | `/disputes/:disputeId` | Admin | Set status to `Under review`, `Resolved`, or `Refunded` |
-| `GET` | `/admin/dashboard` | Admin | Transaction volume, order statuses, user counts, deliveries, fee revenue for 7/30 days |
-| `GET` | `/admin/orders?page=1&limit=20` | Admin | Paginated marketplace orders |
-| `GET` | `/admin/users?page=1&limit=20` | Admin | Paginated user list |
-| `GET` | `/ledger/entries?page=1&limit=25&from=2026-01-01&to=2026-12-31&orderId=...` | Admin | Filtered and paginated ledger audit |
-| `GET` | `/ledger/integrity` | Admin | Debit/credit totals and balance by currency |
-
-Failed or expired payments automatically open a system dispute for admin
-review. Admin refunds call the configured payment provider and reverse every
-original ledger line within a MongoDB transaction; a repeated refund request is
-idempotent. The mock provider is intended for offline demos. Flutterwave mode
-uses the TEST API and requires the verified provider transaction ID. The order
-is marked `Refunded` after the refund and reversal are recorded.
-
-### Phase 6 browser walkthrough
-
-1. Run the API and client, then seed demo data if this is a fresh database.
-2. Sign in as `buyer@dishdash.demo` / `DishDashDemo2026!`, add a dish, check out,
-   and simulate payment success.
-3. On the order page, download the receipt. Submit a report from the order page.
-4. Sign in in a separate browser window as `admin@dishdash.demo` with the same
-   password. Review Dashboard, Orders, Users, Ledger, and Disputes.
-5. Select **Under review**, then **Refund** (or **Resolve**) for the buyer's
-   dispute. Verify the order status and that the ledger integrity badge remains
-   **Balanced**. A second refund request is safe and does not create duplicate
-   ledger entries.
-
-For tests, use `Set-Location server; npm.cmd test` (all backend integration
-tests) and `npm.cmd run lint`. For the UI use `Set-Location client;
-npm.cmd run lint` and `npm.cmd run build`. Integration tests launch a disposable
-MongoDB replica set using `mongodb-memory-server`; if its binary is not cached,
-the first run needs network access to download MongoDB.
-
-## Tests, lint, and build
+From the root:
 
 ```powershell
-Set-Location server
 npm.cmd test
 npm.cmd run lint
-
-Set-Location ..\client
-npm.cmd run lint
 npm.cmd run build
+npm.cmd run loadtest
 ```
 
-Backend integration tests use a disposable MongoDB replica set and cover
-authentication/RBAC, catalog/cart behavior, checkout success and rollback,
-parallel last-item purchases, checkout idempotency, webhook idempotency, order
-access control, ledger balancing, lifecycle permissions/transitions, parallel
-courier acceptance, and authenticated Socket.IO event delivery. Run the
-lifecycle, courier-race, and socket cases along with the other checkout tests
-using:
+The Jest integration tests start disposable MongoDB instances; first use may
+download a MongoDB binary. They cover authentication/RBAC, product and cart
+routes, image upload type/size/ownership, checkout rollback/idempotency/stock
+race, webhook idempotency, order lifecycle/courier race, Socket.IO, receipts,
+dashboard metrics, disputes/refunds, and ledger balance.
+
+Load test command (equivalent):
 
 ```powershell
-Set-Location server
-npm.cmd test -- --runTestsByPath src/routes/checkout.test.js
+npm.cmd run loadtest --prefix server
 ```
 
-The catalog integration tests also exercise successful vendor image upload,
-static image serving, unsupported type and 2 MB size rejection, and image
-ownership protection.
+It starts an isolated single-node MongoDB replica set and temporary API, seeds
+throwaway users and a high-stock product, then measures (a) catalog browsing and
+(b) login + add-to-cart + checkout + mock payment confirmation at baseline and
+150% concurrent users. It prints average/P95 for checkout and cart-to-confirm,
+catalog throughput/errors, and P95 change. Defaults are 8 baseline buyers then
+12 concurrent buyers; the auth limiter is respected. This is a repeatable local
+comparison, not production capacity certification. Keep Atlas/Docker unrelated
+to this isolated run; MongoDB memory server needs an available cached binary or
+network access to download it.
 
-Tests do not contact Flutterwave.
+| Load level | Concurrent users | Checkout avg | Checkout P95 | Cart-to-confirm avg/P95 | Catalog errors | Result |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| Baseline | 8 | 1,381.2 ms | 2,048.4 ms | 2,918.2 / 3,304.4 ms | 0 | 8/8 flows completed; catalog 93.1 ms avg / 187.9 ms P95, 84.6 req/s |
+| 150% of baseline | 12 | 1,467.5 ms | 2,539.1 ms | 2,854.8 / 3,285.8 ms | 0 | 12/12 flows completed; catalog 159.7 ms avg / 315.9 ms P95, 75.6 req/s |
+
+In this run, catalog P95 rose 68.2% and checkout P95 rose 24.0% at 150% load,
+so the “no degradation” scalability objective was **not met**. All flows
+completed, but cart-to-confirm P95 was above 3 seconds in both scenarios. This
+is one local Windows run; repeat on the presentation machine and include its
+CPU, memory, Node version, and results if making performance claims.
+
+## Known limitations to disclose
+
+- The local load runner is a single-process benchmark over one in-memory MongoDB
+  replica set; it cannot substantiate a production scaling/SLA claim.
+- API rate-limit counters are in-memory and require a shared store for
+  multi-instance enforcement. Socket.IO also needs a shared adapter when
+  horizontally scaled.
+- TLS is deployment-ready behind a trusted HTTPS reverse proxy/load balancer;
+  certificates are not provisioned by this repository.
+- Flutterwave support is test-mode only. The no-key mock provider is the
+  preferred offline demo path.
+- Checkout currently supports items from one vendor per order.
+- Local development image storage is filesystem-backed and not shared across
+  API instances; production needs configured Cloudinary credentials.
+- Automated browser end-to-end coverage and a production deployment pipeline
+  are outside this MVP.
+
+## Troubleshooting
+
+- **Atlas IP access list**: add your current public IP under Atlas Network
+  Access. Do not leave `0.0.0.0/0` open as a permanent setting.
+- **Atlas cluster paused**: resume the cluster in Atlas, wait until it is
+  available, then restart the server. Confirm `MONGODB_URI` uses the correct
+  database user and URL-encoded password.
+- **Transactions unsupported**: use an Atlas replica-set cluster or the
+  optional Docker replica set; standalone MongoDB does not support the required
+  multi-document transaction workflow.
+- **Port already in use**: set `PORT` to an unused API port and update
+  `VITE_API_URL`; Vite may offer a different port, which must also be included
+  in `CLIENT_ORIGIN`.
+- **Browser CORS error**: ensure `CLIENT_ORIGIN` exactly matches the browser
+  origin including protocol and port; restart the API after changing `.env`.
+- **MongoDB test binary download fails**: rerun when network access is
+  available, or pre-cache a matching MongoDB binary for
+  `mongodb-memory-server`.
+- **Product image fails**: check local API `/uploads/` access and file format.
+  Production requires the Cloudinary settings and a reachable Cloudinary API.
+- **Mock payment button missing**: the simulation UI is development-only; use
+  the Vite development server and `PAYMENT_PROVIDER=mock`.
+
+## Security and release checklist
+
+- Dependency audits were run in both server and client after applying
+  non-forced `npm audit fix` updates. Re-run
+  `npm.cmd audit --prefix server` and `npm.cmd audit --prefix client` before
+  release. Remaining advisories that require a breaking upgrade are detailed
+  in the final Phase 8 handoff; do not use `npm audit fix --force` without
+  migrating and retesting the affected framework.
+- Current audit snapshot: server **38 findings (30 high, 8 moderate)** and
+  client **7 findings (5 high, 2 moderate)**. Audit recommends forced
+  dependency changes through older `nodemon` / Tailwind CSS 4 / Jest 30 /
+  `autocannon@2`, so those breaking changes were not applied. Re-audit because
+  advisory databases change over time.
+- Keep all actual `.env` files, uploaded images, dependency trees, coverage,
+  and build output out of Git.
+- Use unique production secrets and rotate any credential that has been shared.
+- Do not log credentials, JWTs, payment payloads, or card data. Payment card
+  input remains on the hosted provider page.
+- Configure HTTPS termination and trusted proxy settings in the deployment
+  environment before exposing the application publicly.
+- Review `npm audit` output for both workspaces before final submission; do not
+  apply breaking dependency upgrades without validating the app.

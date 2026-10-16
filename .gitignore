@@ -1,7 +1,12 @@
-node_modules/
-dist/
-coverage/
+**/node_modules/
+**/dist/
+**/coverage/
 .env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
 .DS_Store
 npm-debug.log*
 server/uploads/

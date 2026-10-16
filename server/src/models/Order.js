@@ -95,5 +95,7 @@ const orderSchema = new mongoose.Schema(
 
 orderSchema.index({ status: 1, createdAt: -1 });
 orderSchema.index({ courier: 1, status: 1 });
+orderSchema.index({ buyer: 1, createdAt: -1 });
+orderSchema.index({ vendor: 1, createdAt: -1 });
 
 export default mongoose.models.Order || mongoose.model("Order", orderSchema);

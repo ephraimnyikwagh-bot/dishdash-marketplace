@@ -25,19 +25,24 @@ export default function VendorDashboardPage() {
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState("");
   const imageInputRef = useRef(null);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
 
   const loadProducts = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const { data } = await api.get("/products/mine");
+      const { data } = await api.get("/products/mine", {
+        params: { page, limit: 30 }
+      });
       setProducts(data.products || []);
+      setTotalPages(Math.max(1, data.totalPages || 1));
     } catch (requestError) {
       setError(getErrorMessage(requestError, "Could not load your products."));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [page]);
 
   useEffect(() => {
     loadProducts();
@@ -162,7 +167,7 @@ export default function VendorDashboardPage() {
           </p>
         </div>
         <span className="rounded-full bg-orange-100 px-4 py-2 text-sm font-bold text-orange-800">
-          {products.length} {products.length === 1 ? "product" : "products"}
+          {products.length} shown
         </span>
       </div>
 
@@ -315,6 +320,7 @@ export default function VendorDashboardPage() {
               </p>
             </div>
           ) : (
+            <>
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
               {products.map((product) => (
                 <article
@@ -360,6 +366,28 @@ export default function VendorDashboardPage() {
                 </article>
               ))}
             </div>
+            {totalPages > 1 && (
+              <div className="mt-6 flex items-center justify-center gap-4">
+                <button
+                  className="button-secondary"
+                  disabled={page <= 1}
+                  onClick={() => setPage((current) => current - 1)}
+                  type="button"
+                >
+                  Previous
+                </button>
+                <span className="text-sm text-slate-500">Page {page} of {totalPages}</span>
+                <button
+                  className="button-secondary"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((current) => current + 1)}
+                  type="button"
+                >
+                  Next
+                </button>
+              </div>
+            )}
+            </>
           )}
         </section>
       </div>

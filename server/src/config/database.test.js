@@ -48,7 +48,8 @@ describe("MongoDB transaction capability check", () => {
       false
     );
     expect(logger.warn).toHaveBeenCalledWith(
-      expect.stringContaining("transaction support could not be verified")
+      expect.stringContaining("transaction support could not be verified"),
+      { name: "Error", code: "UNKNOWN" }
     );
   });
 });

@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { rateLimit } from "express-rate-limit";
 import { allowRoles, requireAuth } from "../middleware/auth.js";
 import { CheckoutError, createCheckout } from "../services/checkout.js";
 import { createPaymentProvider } from "../services/payments/index.js";
@@ -7,11 +8,20 @@ export function createCheckoutRouter({
   providerFactory = createPaymentProvider
 } = {}) {
   const router = Router();
+  const checkoutLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    limit: 10,
+    keyGenerator: (request) => request.auth.id,
+    standardHeaders: "draft-7",
+    legacyHeaders: false,
+    message: { message: "Too many checkout attempts. Try again in a minute." }
+  });
 
   router.post(
     "/",
     requireAuth,
     allowRoles("buyer"),
+    checkoutLimiter,
     async (request, response, next) => {
       const clientKey = request.get("Idempotency-Key");
       if (!clientKey || !/^[A-Za-z0-9._:-]{8,128}$/.test(clientKey)) {

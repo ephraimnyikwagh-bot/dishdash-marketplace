@@ -31,6 +31,8 @@ const productSchema = new mongoose.Schema(
 );
 
 productSchema.index({ isActive: 1, category: 1, name: 1 });
+productSchema.index({ isActive: 1, name: 1, createdAt: -1 });
+productSchema.index({ isActive: 1, createdAt: -1 });
 productSchema.index({ vendor: 1, isActive: 1, createdAt: -1 });
 
 export default mongoose.models.Product ||
