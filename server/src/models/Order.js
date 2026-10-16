@@ -1,5 +1,27 @@
 import mongoose from "mongoose";
 
+const orderStatusHistorySchema = new mongoose.Schema(
+  {
+    status: {
+      type: String,
+      enum: ["Pending", "Paid", "Shipped", "Delivered", "Failed", "Cancelled"],
+      required: true
+    },
+    changedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null
+    },
+    changedByRole: {
+      type: String,
+      enum: ["buyer", "vendor", "courier", "admin", "system"],
+      required: true
+    },
+    changedAt: { type: Date, required: true, default: Date.now }
+  },
+  { _id: false }
+);
+
 const orderSchema = new mongoose.Schema(
   {
     buyer: {
@@ -25,6 +47,7 @@ const orderSchema = new mongoose.Schema(
       default: "Pending",
       index: true
     },
+    statusHistory: { type: [orderStatusHistorySchema], default: [] },
     subtotalCents: {
       type: Number,
       required: true,

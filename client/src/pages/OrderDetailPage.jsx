@@ -4,12 +4,19 @@ import api, { getErrorMessage } from "../api.js";
 import Loading from "../components/Loading.jsx";
 import Notice from "../components/Notice.jsx";
 import { formatPrice, StatusBadge } from "./OrdersPage.jsx";
+import { useAuth } from "../auth.jsx";
+import { useRealtime } from "../realtime.jsx";
+
+const deliveryStages = ["Pending", "Paid", "Shipped", "Delivered"];
 
 export default function OrderDetailPage() {
   const { orderId } = useParams();
+  const { user } = useAuth();
+  const { socket } = useRealtime();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -28,6 +35,53 @@ export default function OrderDetailPage() {
       active = false;
     };
   }, [orderId]);
+
+  useEffect(() => {
+    if (!socket) return undefined;
+    const joinOrder = () => socket.emit("order:join", orderId);
+    const handleUpdate = (update) => {
+      if (update.orderId !== orderId) return;
+      setData((current) =>
+        current
+          ? {
+              ...current,
+              order: {
+                ...current.order,
+                status: update.status,
+                courier: update.courier,
+                statusHistory: update.statusHistory,
+                updatedAt: update.updatedAt
+              }
+            }
+          : current
+      );
+    };
+    socket.on("connect", joinOrder);
+    socket.on("order:updated", handleUpdate);
+    if (socket.connected) joinOrder();
+    return () => {
+      socket.emit("order:leave", orderId);
+      socket.off("connect", joinOrder);
+      socket.off("order:updated", handleUpdate);
+    };
+  }, [orderId, socket]);
+
+  async function cancelOrder() {
+    setBusy(true);
+    setError("");
+    try {
+      const { data: response } = await api.patch(`/orders/${orderId}/status`, {
+        status: "Cancelled"
+      });
+      setData((current) =>
+        current ? { ...current, order: response.order } : current
+      );
+    } catch (requestError) {
+      setError(getErrorMessage(requestError, "Could not cancel this order."));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   if (loading) return <Loading label="Loading order..." />;
   if (error) {
@@ -91,6 +145,72 @@ export default function OrderDetailPage() {
             Payment was not completed. Reserved stock has been released. You
             can add the items to your cart and try again.
           </p>
+        )}
+        <section className="mt-8">
+          <h2 className="text-lg font-extrabold">Live order timeline</h2>
+          <ol className="mt-4 space-y-3">
+            {deliveryStages.map((stage, index) => {
+              const reached = deliveryStages.indexOf(order.status) >= index;
+              const entry = [...(order.statusHistory || [])]
+                .reverse()
+                .find((item) => item.status === stage);
+              return (
+                <li className="flex items-start gap-3" key={stage}>
+                  <span
+                    className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                      reached
+                        ? "bg-emerald-600 text-white"
+                        : "bg-slate-100 text-slate-400"
+                    }`}
+                  >
+                    {reached ? "✓" : index + 1}
+                  </span>
+                  <div>
+                    <p className={`font-semibold ${reached ? "text-slate-900" : "text-slate-400"}`}>
+                      {stage}
+                    </p>
+                    {entry && (
+                      <p className="text-xs text-slate-500">
+                        {new Date(entry.changedAt).toLocaleString()} ·{" "}
+                        {entry.changedByRole === "system"
+                          ? "Payment system"
+                          : entry.changedByRole}
+                      </p>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+            {["Failed", "Cancelled"].includes(order.status) && (
+              <li className="flex items-start gap-3">
+                <span className="mt-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-red-100 text-xs font-bold text-red-700">
+                  !
+                </span>
+                <div>
+                  <p className="font-semibold text-red-800">{order.status}</p>
+                  {order.statusHistory
+                    ?.filter((item) => item.status === order.status)
+                    .slice(-1)
+                    .map((entry) => (
+                      <p className="text-xs text-slate-500" key={entry.changedAt}>
+                        {new Date(entry.changedAt).toLocaleString()} ·{" "}
+                        {entry.changedByRole}
+                      </p>
+                    ))}
+                </div>
+              </li>
+            )}
+          </ol>
+        </section>
+        {user.role === "buyer" && order.status === "Pending" && (
+          <button
+            className="mt-6 rounded-xl border border-red-200 px-4 py-2 text-sm font-bold text-red-700 hover:bg-red-50 disabled:opacity-60"
+            disabled={busy}
+            onClick={cancelOrder}
+            type="button"
+          >
+            {busy ? "Cancelling..." : "Cancel order"}
+          </button>
         )}
         <Link className="button-primary mt-6 inline-flex" to="/orders">
           View all orders

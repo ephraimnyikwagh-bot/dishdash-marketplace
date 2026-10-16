@@ -201,6 +201,38 @@ entries are integer cents.
 The mock simulation route is for local demos, not a production webhook
 substitute. Flutterwave's webhook is the externally verified payment flow.
 
+## Order lifecycle and live updates (Phase 5)
+
+Order statuses are `Pending`, `Paid`, `Shipped`, `Delivered`, `Failed`, and
+`Cancelled`. The supported fulfillment transitions are `Paid` to `Shipped` by
+the owning vendor, then `Shipped` to `Delivered` by the assigned courier. A
+buyer may cancel only a `Pending` order. Invalid transitions return HTTP 409
+with the current and requested states; requests by the wrong role are rejected.
+Every status transition appends the status, actor/role, and timestamp to the
+order's `statusHistory`.
+
+| Method | Endpoint | Access | Description |
+| --- | --- | --- | --- |
+| `PATCH` | `/orders/:orderId/status` | Buyer/vendor | Buyer cancels a pending order; owning vendor marks paid order shipped |
+| `GET` | `/courier/available?page=1&limit=10` | Courier | List unassigned shipped orders |
+| `POST` | `/courier/:orderId/accept` | Courier | Atomically accept an available delivery |
+| `GET` | `/courier/deliveries?page=1&limit=10` | Courier | List assigned and completed deliveries |
+| `POST` | `/courier/:orderId/delivered` | Assigned courier | Mark an accepted order delivered |
+
+The API Socket.IO server authenticates connections using the same JWT as REST
+requests. Clients join their own `user:<userId>` room automatically and may
+join an authorized `order:<orderId>` room using `order:join`. Status and
+assignment updates are emitted as `order:updated` to the buyer, vendor, and
+assigned courier. The client provides a buyer order timeline, vendor
+ship-ready action, courier dashboard, toast messages, and a recent-updates bell.
+
+To demo with three browser windows, sign in separately as
+`buyer@dishdash.demo`, `vendor@dishdash.demo`, and `courier@dishdash.demo`
+(shared password `DishDashDemo2026!`). Pay for a buyer order, open its details
+in the buyer window, mark it shipped from the vendor's Incoming orders, then
+accept and deliver it in the courier dashboard. The buyer timeline and all
+involved notification bells update live.
+
 ## Tests, lint, and build
 
 ```powershell
@@ -216,4 +248,14 @@ npm.cmd run build
 Backend integration tests use a disposable MongoDB replica set and cover
 authentication/RBAC, catalog/cart behavior, checkout success and rollback,
 parallel last-item purchases, checkout idempotency, webhook idempotency, order
-access control, and ledger balancing. Tests do not contact Flutterwave.
+access control, ledger balancing, lifecycle permissions/transitions, parallel
+courier acceptance, and authenticated Socket.IO event delivery. Run the
+lifecycle, courier-race, and socket cases along with the other checkout tests
+using:
+
+```powershell
+Set-Location server
+npm.cmd test -- --runTestsByPath src/routes/checkout.test.js
+```
+
+Tests do not contact Flutterwave.

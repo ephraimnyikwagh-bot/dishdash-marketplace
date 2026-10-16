@@ -1,7 +1,9 @@
 import express from "express";
+import { createServer } from "node:http";
 import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
 import { MongoMemoryReplSet } from "mongodb-memory-server";
+import { io as createSocketClient } from "socket.io-client";
 import request from "supertest";
 import app from "../app.js";
 import Cart from "../models/Cart.js";
@@ -14,6 +16,7 @@ import Product from "../models/Product.js";
 import User from "../models/User.js";
 import WebhookEvent from "../models/WebhookEvent.js";
 import { processPaymentEvent } from "../services/checkout.js";
+import { initializeRealtime, resetRealtime } from "../services/realtime.js";
 
 const jwtSecret = "test-secret-with-at-least-thirty-two-characters";
 
@@ -98,6 +101,52 @@ describe("checkout, payments, orders, and ledger", () => {
       .post(`/api/payments/${paymentId}/simulate`)
       .set("Authorization", `Bearer ${tokenFor(buyer)}`)
       .send({ outcome });
+  }
+
+  async function createPaidOrder() {
+    const vendor = await createUser("vendor");
+    const buyer = await createUser("buyer");
+    const product = await createProduct(vendor);
+    await putInCart(buyer, product);
+    const checkoutResponse = await checkout(buyer);
+    const paymentResponse = await simulate(buyer, checkoutResponse.body.payment.id);
+    expect(paymentResponse.status).toBe(200);
+    return { vendor, buyer, orderId: checkoutResponse.body.order._id };
+  }
+
+  async function updateOrderStatus(user, orderId, status) {
+    return request(app)
+      .patch(`/api/orders/${orderId}/status`)
+      .set("Authorization", `Bearer ${tokenFor(user)}`)
+      .send({ status });
+  }
+
+  function connectSocket(url, user) {
+    return new Promise((resolve, reject) => {
+      const socket = createSocketClient(url, {
+        auth: { token: tokenFor(user) },
+        forceNew: true,
+        transports: ["websocket"]
+      });
+      socket.once("connect", () => resolve(socket));
+      socket.once("connect_error", reject);
+    });
+  }
+
+  function waitForUpdate(socket, orderId, status) {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        socket.off("order:updated", handleUpdate);
+        reject(new Error(`Timed out waiting for ${status} order update`));
+      }, 3000);
+      function handleUpdate(update) {
+        if (update.orderId !== String(orderId) || update.status !== status) return;
+        clearTimeout(timer);
+        socket.off("order:updated", handleUpdate);
+        resolve(update);
+      }
+      socket.on("order:updated", handleUpdate);
+    });
   }
 
   test("creates a pending order, decrements inventory and clears cart atomically", async () => {
@@ -244,6 +293,7 @@ describe("checkout, payments, orders, and ledger", () => {
     await putInCart(otherBuyer, unrelatedProduct);
     const ownOrder = await checkout(buyer);
     const otherOrder = await checkout(otherBuyer);
+    await simulate(buyer, ownOrder.body.payment.id);
 
     const buyerList = await request(app)
       .get("/api/orders?page=1&limit=5")
@@ -287,5 +337,177 @@ describe("checkout, payments, orders, and ledger", () => {
       creditsCents: 1000,
       balanced: true
     });
+  });
+
+  test("enforces lifecycle transitions, role restrictions, and records history", async () => {
+      const { vendor, buyer, orderId } = await createPaidOrder();
+      const courier = await createUser("courier");
+      const otherVendor = await createUser("vendor");
+
+      const buyerCannotShip = await updateOrderStatus(buyer, orderId, "Shipped");
+      expect(buyerCannotShip.status).toBe(403);
+      expect(buyerCannotShip.body.message).toMatch(/role/i);
+
+      const otherVendorCannotShip = await updateOrderStatus(
+        otherVendor,
+        orderId,
+        "Shipped"
+      );
+      expect(otherVendorCannotShip.status).toBe(404);
+
+      const shipped = await updateOrderStatus(vendor, orderId, "Shipped");
+      expect(shipped.status).toBe(200);
+      expect(shipped.body.order.status).toBe("Shipped");
+
+      const courierCannotDeliverUnassigned = await request(app)
+        .post(`/api/courier/${orderId}/delivered`)
+        .set("Authorization", `Bearer ${tokenFor(courier)}`);
+      expect(courierCannotDeliverUnassigned.status).toBe(404);
+
+      const accepted = await request(app)
+        .post(`/api/courier/${orderId}/accept`)
+        .set("Authorization", `Bearer ${tokenFor(courier)}`);
+      expect(accepted.status).toBe(200);
+      const delivered = await request(app)
+        .post(`/api/courier/${orderId}/delivered`)
+        .set("Authorization", `Bearer ${tokenFor(courier)}`);
+      expect(delivered.status).toBe(200);
+      expect(delivered.body.order.status).toBe("Delivered");
+      expect(delivered.body.order.statusHistory.map((entry) => entry.status)).toEqual([
+        "Pending",
+        "Paid",
+        "Shipped",
+        "Delivered"
+      ]);
+
+      const invalidRepeat = await updateOrderStatus(vendor, orderId, "Shipped");
+      expect(invalidRepeat.status).toBe(409);
+      expect(invalidRepeat.body.message).toMatch(/cannot change order/i);
+  });
+
+  test("buyers can cancel only pending orders and cancellation restores stock", async () => {
+      const vendor = await createUser("vendor");
+      const buyer = await createUser("buyer");
+      const product = await createProduct(vendor, { stock: 4 });
+      await putInCart(buyer, product, 2);
+      const created = await checkout(buyer);
+
+      const cancelled = await updateOrderStatus(buyer, created.body.order._id, "Cancelled");
+      expect(cancelled.status).toBe(200);
+      expect(cancelled.body.order.status).toBe("Cancelled");
+      expect(cancelled.body.order.statusHistory.at(-1).changedByRole).toBe("buyer");
+      expect(await Product.findById(product._id).then((item) => item.stock)).toBe(4);
+
+      const anotherProduct = await createProduct(vendor, {
+        name: "Paid test item",
+        stock: 4
+      });
+      await putInCart(buyer, anotherProduct);
+      const paid = await checkout(buyer);
+      await simulate(buyer, paid.body.payment.id);
+      const tooLate = await updateOrderStatus(buyer, paid.body.order._id, "Cancelled");
+      expect(tooLate.status).toBe(409);
+      expect(tooLate.body.message).toMatch(/cannot change order from Paid to Cancelled/i);
+  });
+
+  test("courier assignment is atomic when two couriers accept the same order", async () => {
+      const { vendor, orderId } = await createPaidOrder();
+      const firstCourier = await createUser("courier");
+      const secondCourier = await createUser("courier");
+      const shipped = await updateOrderStatus(vendor, orderId, "Shipped");
+      expect(shipped.status).toBe(200);
+
+      const accept = (courier) =>
+        request(app)
+          .post(`/api/courier/${orderId}/accept`)
+          .set("Authorization", `Bearer ${tokenFor(courier)}`);
+      const attempts = await Promise.all([
+        accept(firstCourier),
+        accept(secondCourier)
+      ]);
+      expect(attempts.map((result) => result.status).sort()).toEqual([200, 409]);
+      const order = await Order.findById(orderId);
+      expect([String(firstCourier._id), String(secondCourier._id)]).toContain(
+        String(order.courier)
+      );
+
+      const winner = String(order.courier) === String(firstCourier._id)
+        ? firstCourier
+        : secondCourier;
+      const deliveries = await request(app)
+        .get("/api/courier/deliveries")
+        .set("Authorization", `Bearer ${tokenFor(winner)}`);
+      expect(deliveries.status).toBe(200);
+      expect(deliveries.body.orders.map((item) => item._id)).toContain(
+        String(orderId)
+      );
+  });
+
+  test("Socket.IO authenticates clients and emits order updates only to involved users", async () => {
+      const { vendor, buyer, orderId } = await createPaidOrder();
+      const courier = await createUser("courier");
+      const unrelatedBuyer = await createUser("buyer");
+      const server = createServer();
+      const io = initializeRealtime(server);
+      await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+      const address = server.address();
+      const url = `http://127.0.0.1:${address.port}`;
+      const clients = [];
+
+      try {
+        const [buyerSocket, vendorSocket, courierSocket, unrelatedSocket] =
+          await Promise.all([
+            connectSocket(url, buyer),
+            connectSocket(url, vendor),
+            connectSocket(url, courier),
+            connectSocket(url, unrelatedBuyer)
+          ]);
+        clients.push(buyerSocket, vendorSocket, courierSocket, unrelatedSocket);
+
+        const unauthorizedJoin = await new Promise((resolve) => {
+          unrelatedSocket.emit("order:join", orderId, resolve);
+        });
+        expect(unauthorizedJoin.joined).toBe(false);
+
+        for (const socket of [buyerSocket, vendorSocket]) {
+          const joined = await new Promise((resolve) => {
+            socket.emit("order:join", orderId, resolve);
+          });
+          expect(joined.joined).toBe(true);
+        }
+
+        const unrelatedEvents = [];
+        unrelatedSocket.on("order:updated", (update) => unrelatedEvents.push(update));
+
+        const buyerShipped = waitForUpdate(buyerSocket, orderId, "Shipped");
+        const vendorShipped = waitForUpdate(vendorSocket, orderId, "Shipped");
+        await updateOrderStatus(vendor, orderId, "Shipped");
+        await Promise.all([buyerShipped, vendorShipped]);
+
+        const buyerAssigned = waitForUpdate(buyerSocket, orderId, "Shipped");
+        const courierAssigned = waitForUpdate(courierSocket, orderId, "Shipped");
+        await request(app)
+          .post(`/api/courier/${orderId}/accept`)
+          .set("Authorization", `Bearer ${tokenFor(courier)}`);
+        await Promise.all([buyerAssigned, courierAssigned]);
+
+        const deliveredEvents = [
+          waitForUpdate(buyerSocket, orderId, "Delivered"),
+          waitForUpdate(vendorSocket, orderId, "Delivered"),
+          waitForUpdate(courierSocket, orderId, "Delivered")
+        ];
+        await request(app)
+          .post(`/api/courier/${orderId}/delivered`)
+          .set("Authorization", `Bearer ${tokenFor(courier)}`);
+        const emitted = await Promise.all(deliveredEvents);
+        expect(emitted.every((update) => update.orderId === String(orderId))).toBe(true);
+
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        expect(unrelatedEvents).toHaveLength(0);
+      } finally {
+        clients.forEach((socket) => socket.disconnect());
+        await new Promise((resolve) => io.close(resolve));
+        resetRealtime();
+      }
   });
 });

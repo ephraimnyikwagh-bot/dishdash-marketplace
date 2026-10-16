@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   Link,
   Navigate,
@@ -18,6 +18,8 @@ import VendorDashboardPage from "./pages/VendorDashboardPage.jsx";
 import PaymentPage, { PaymentReturnPage } from "./pages/PaymentPage.jsx";
 import OrdersPage from "./pages/OrdersPage.jsx";
 import OrderDetailPage from "./pages/OrderDetailPage.jsx";
+import CourierDashboardPage from "./pages/CourierDashboardPage.jsx";
+import { RealtimeProvider, useRealtime } from "./realtime.jsx";
 
 function Spinner({ label = "Loading..." }) {
   return (
@@ -34,6 +36,8 @@ function Spinner({ label = "Loading..." }) {
 function RoleHome({ role }) {
   if (role === "vendor") return <Navigate to="/vendor" replace />;
   if (role === "buyer") return <Navigate to="/catalog" replace />;
+  if (role === "courier") return <Navigate to="/courier" replace />;
+  if (role === "admin") return <Navigate to="/orders" replace />;
   return <Navigate to="/login" replace />;
 }
 
@@ -52,7 +56,9 @@ function Guard({ roles }) {
 function Navbar() {
   const { user, logout } = useAuth();
   const { count } = useCart();
+  const { connected, updates, clearUpdates } = useRealtime();
   const navigate = useNavigate();
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
 
   function handleLogout() {
     logout();
@@ -66,7 +72,15 @@ function Navbar() {
           aria-label="DishDash home"
           className="flex shrink-0 items-center gap-2"
           to={
-            user ? (user.role === "vendor" ? "/vendor" : "/catalog") : "/login"
+            user
+              ? user.role === "vendor"
+                ? "/vendor"
+                : user.role === "courier"
+                  ? "/courier"
+                  : user.role === "admin"
+                    ? "/orders"
+                    : "/catalog"
+              : "/login"
           }
         >
           <img alt="" className="h-10 w-10 rounded-xl" src="/logo.png" />
@@ -120,6 +134,94 @@ function Navbar() {
               </Link>
             </>
           )}
+          {user?.role === "courier" && (
+            <Link className="nav-link" to="/courier">
+              Deliveries
+            </Link>
+          )}
+          {user?.role === "admin" && (
+            <Link className="nav-link" to="/orders">
+              All orders
+            </Link>
+          )}
+          {user && (
+            <div className="relative">
+              <button
+                aria-expanded={notificationsOpen}
+                aria-label={`Notifications${updates.length ? `, ${updates.length} recent updates` : ""}`}
+                className="relative rounded-xl p-2 text-slate-700 hover:bg-orange-50"
+                onClick={() => {
+                  setNotificationsOpen((open) => !open);
+                }}
+                type="button"
+              >
+                <svg
+                  aria-hidden="true"
+                  className="h-6 w-6"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9m-8 12h4"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+                {!connected && (
+                  <span
+                    aria-label="Live updates disconnected"
+                    className="absolute right-1 top-1 h-2 w-2 rounded-full bg-slate-300"
+                    title="Live updates disconnected"
+                  />
+                )}
+                {updates.length > 0 && (
+                  <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-orange-600 px-1 text-[10px] font-bold text-white">
+                    {updates.length}
+                  </span>
+                )}
+              </button>
+              {notificationsOpen && (
+                <div className="absolute right-0 top-12 z-30 w-72 rounded-2xl border border-slate-100 bg-white p-3 shadow-xl">
+                  <div className="flex items-center justify-between px-2 py-1">
+                    <p className="font-bold">Recent updates</p>
+                    <button
+                      className="text-xs font-semibold text-orange-700"
+                      onClick={clearUpdates}
+                      type="button"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                  {updates.length === 0 ? (
+                    <p className="px-2 py-4 text-sm text-slate-500">
+                      No recent order updates.
+                    </p>
+                  ) : (
+                    <ul className="mt-2 max-h-72 space-y-1 overflow-y-auto">
+                      {updates.map((update) => (
+                        <li key={update.notificationId}>
+                          <Link
+                            className="block rounded-xl px-2 py-2 text-sm hover:bg-orange-50"
+                            onClick={() => setNotificationsOpen(false)}
+                            to={
+                              user.role === "courier"
+                                ? "/courier"
+                                : `/orders/${update.orderId}`
+                            }
+                          >
+                            Order #{String(update.orderId).slice(-8)} is{" "}
+                            {update.status}.
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
           <span className="hidden max-w-32 truncate text-sm text-slate-500 md:block">
             {user?.name}
           </span>
@@ -165,12 +267,16 @@ function AppFrame() {
           <Route path="/cart" element={<CartPage />} />
           <Route path="/payment/return" element={<PaymentReturnPage />} />
           <Route path="/payment/:paymentId" element={<PaymentPage />} />
-          <Route path="/orders" element={<OrdersPage />} />
-          <Route path="/orders/:orderId" element={<OrderDetailPage />} />
         </Route>
         <Route element={<Guard roles={["vendor"]} />}>
           <Route path="/vendor" element={<VendorDashboardPage />} />
+        </Route>
+        <Route element={<Guard roles={["buyer", "vendor", "admin"]} />}>
           <Route path="/orders" element={<OrdersPage />} />
+          <Route path="/orders/:orderId" element={<OrderDetailPage />} />
+        </Route>
+        <Route element={<Guard roles={["courier"]} />}>
+          <Route path="/courier" element={<CourierDashboardPage />} />
           <Route path="/orders/:orderId" element={<OrderDetailPage />} />
         </Route>
         <Route path="*" element={<RoleHome role={user?.role} />} />
@@ -183,7 +289,9 @@ export default function App() {
   return (
     <AuthProvider>
       <CartProvider>
-        <AppFrame />
+        <RealtimeProvider>
+          <AppFrame />
+        </RealtimeProvider>
       </CartProvider>
     </AuthProvider>
   );

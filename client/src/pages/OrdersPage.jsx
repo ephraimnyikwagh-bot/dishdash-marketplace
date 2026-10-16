@@ -4,6 +4,7 @@ import api, { getErrorMessage } from "../api.js";
 import { useAuth } from "../auth.jsx";
 import Loading from "../components/Loading.jsx";
 import Notice from "../components/Notice.jsx";
+import { useRealtime } from "../realtime.jsx";
 
 function formatPrice(cents) {
   return new Intl.NumberFormat("en-US", {
@@ -32,6 +33,7 @@ export { StatusBadge, formatPrice };
 
 export default function OrdersPage() {
   const { user } = useAuth();
+  const { updates } = useRealtime();
   const [orders, setOrders] = useState([]);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
@@ -58,7 +60,21 @@ export default function OrdersPage() {
     loadOrders();
   }, [loadOrders]);
 
+  useEffect(() => {
+    if (updates.length) loadOrders();
+  }, [updates, loadOrders]);
+
   const vendor = user.role === "vendor";
+
+  async function markShipped(orderId) {
+    setError("");
+    try {
+      await api.patch(`/orders/${orderId}/status`, { status: "Shipped" });
+      await loadOrders();
+    } catch (requestError) {
+      setError(getErrorMessage(requestError, "Could not mark the order shipped."));
+    }
+  }
 
   return (
     <main className="mx-auto max-w-5xl px-4 pb-16 pt-8 sm:px-6">
@@ -78,7 +94,7 @@ export default function OrdersPage() {
         <div className="mt-6 rounded-2xl border border-dashed border-orange-200 bg-white px-6 py-14 text-center">
           <div className="text-5xl">{vendor ? "📨" : "🧾"}</div>
           <h2 className="mt-4 font-bold">
-            {vendor ? "No paid orders yet" : "No orders yet"}
+            {vendor ? "No incoming orders yet" : "No orders yet"}
           </h2>
           {!vendor && (
             <Link className="button-primary mt-5 inline-flex" to="/catalog">
@@ -89,24 +105,34 @@ export default function OrdersPage() {
       ) : (
         <div className="mt-6 space-y-3">
           {orders.map((order) => (
-            <Link
+          <article
               className="flex flex-wrap items-center justify-between gap-4 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-100 transition hover:shadow-md"
               key={order._id}
-              to={`/orders/${order._id}`}
-            >
-              <div>
-                <p className="text-xs font-semibold text-slate-400">
-                  {new Date(order.createdAt).toLocaleString()}
-                </p>
-                <h2 className="mt-1 font-bold">
-                  Order #{String(order._id).slice(-8).toUpperCase()}
-                </h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  {formatPrice(order.totalCents)}
-                </p>
-              </div>
-              <StatusBadge status={order.status} />
+          >
+            <Link className="min-w-0 flex-1" to={`/orders/${order._id}`}>
+              <p className="text-xs font-semibold text-slate-400">
+                {new Date(order.createdAt).toLocaleString()}
+              </p>
+              <h2 className="mt-1 font-bold">
+                Order #{String(order._id).slice(-8).toUpperCase()}
+              </h2>
+              <p className="mt-1 text-sm text-slate-500">
+                {formatPrice(order.totalCents)}
+              </p>
             </Link>
+            <div className="flex items-center gap-3">
+              <StatusBadge status={order.status} />
+              {vendor && order.status === "Paid" && (
+                <button
+                  className="button-primary !px-3 !py-2"
+                  onClick={() => markShipped(order._id)}
+                  type="button"
+                >
+                  Mark Shipped
+                </button>
+              )}
+            </div>
+          </article>
           ))}
           <div className="flex items-center justify-center gap-4 pt-4">
             <button

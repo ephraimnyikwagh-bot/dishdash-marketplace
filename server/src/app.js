@@ -8,6 +8,7 @@ import { createCheckoutRouter } from "./routes/checkout.js";
 import { createPaymentsRouter } from "./routes/payments.js";
 import ordersRoutes from "./routes/orders.js";
 import ledgerRoutes from "./routes/ledger.js";
+import courierRoutes from "./routes/courier.js";
 
 const app = express();
 
@@ -39,6 +40,7 @@ app.use("/api/cart", cartRoutes);
 app.use("/api/checkout", createCheckoutRouter());
 app.use("/api/payments", createPaymentsRouter());
 app.use("/api/orders", ordersRoutes);
+app.use("/api/courier", courierRoutes);
 app.use("/api/ledger", ledgerRoutes);
 
 app.use((error, _request, response, _next) => {

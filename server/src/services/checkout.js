@@ -8,6 +8,7 @@ import Product from "../models/Product.js";
 import User from "../models/User.js";
 import WebhookEvent from "../models/WebhookEvent.js";
 import { createPaymentProvider } from "./payments/index.js";
+import { emitOrderUpdated } from "./realtime.js";
 
 export class CheckoutError extends Error {
   constructor(statusCode, message) {
@@ -127,6 +128,13 @@ export async function createCheckout({
               buyer: buyerId,
               vendor: vendorId,
               status: "Pending",
+              statusHistory: [
+                {
+                  status: "Pending",
+                  changedBy: buyerId,
+                  changedByRole: "buyer"
+                }
+              ],
               subtotalCents,
               platformFeeCents,
               totalCents: subtotalCents,
@@ -212,6 +220,7 @@ export async function createCheckout({
     await session.endSession();
   }
 
+  if (!result.reused) emitOrderUpdated(result.order);
   return result;
 }
 
@@ -231,10 +240,12 @@ export async function processPaymentEvent({
 
   const session = await connection.startSession();
   let duplicate = false;
+  let updatedOrder = null;
 
   try {
     await session.withTransaction(
       async () => {
+        updatedOrder = null;
         const prior = await WebhookEvent.findOne({ eventId }).session(session);
         if (prior) {
           duplicate = true;
@@ -262,8 +273,13 @@ export async function processPaymentEvent({
           payment.status = "succeeded";
           payment.confirmedAt = new Date();
           order.status = "Paid";
+          order.statusHistory.push({
+            status: "Paid",
+            changedByRole: "system"
+          });
           await payment.save({ session });
           await order.save({ session });
+          updatedOrder = order.toObject();
 
           const vendorPayableCents =
             order.totalCents - order.platformFeeCents;
@@ -306,8 +322,13 @@ export async function processPaymentEvent({
 
         payment.status = "failed";
         order.status = "Failed";
+        order.statusHistory.push({
+          status: "Failed",
+          changedByRole: "system"
+        });
         await payment.save({ session });
         await order.save({ session });
+        updatedOrder = order.toObject();
         const orderItems = await OrderItem.find({ order: order._id }).session(
           session
         );
@@ -337,5 +358,6 @@ export async function processPaymentEvent({
     await session.endSession();
   }
 
+  if (updatedOrder) emitOrderUpdated(updatedOrder);
   return { duplicate, ignored: false };
 }
