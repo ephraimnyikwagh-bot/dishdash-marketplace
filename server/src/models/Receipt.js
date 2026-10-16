@@ -9,7 +9,7 @@ const receiptSchema = new mongoose.Schema(
       unique: true
     },
     receiptNumber: { type: String, required: true, unique: true },
-    filePath: { type: String, default: null },
+    pdfData: { type: Buffer, required: true },
     issuedAt: { type: Date, required: true, default: Date.now }
   },
   { timestamps: true }

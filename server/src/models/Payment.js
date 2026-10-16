@@ -14,6 +14,7 @@ const paymentSchema = new mongoose.Schema(
       required: true
     },
     providerReference: { type: String, unique: true, sparse: true },
+    providerTransactionId: { type: String, default: null },
     paymentUrl: { type: String, default: null },
     amountCents: {
       type: Number,

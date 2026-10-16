@@ -160,6 +160,7 @@ export function createPaymentsRouter({
         providerName: "flutterwave",
         eventId: String(request.body.id || `flw_${transactionId}_${eventStatus}`),
         reference,
+        providerTransactionId: transactionId,
         outcome
       });
       response.json({ received: true, ...result });

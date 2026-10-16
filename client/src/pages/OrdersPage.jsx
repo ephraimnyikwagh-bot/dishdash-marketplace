@@ -20,7 +20,11 @@ function StatusBadge({ status }) {
     Failed: "bg-red-100 text-red-800",
     Delivered: "bg-sky-100 text-sky-800",
     Shipped: "bg-indigo-100 text-indigo-800",
-    Cancelled: "bg-slate-100 text-slate-700"
+    Cancelled: "bg-slate-100 text-slate-700",
+    Refunded: "bg-purple-100 text-purple-800",
+    "Under review": "bg-amber-100 text-amber-800",
+    Open: "bg-amber-100 text-amber-800",
+    Resolved: "bg-slate-100 text-slate-700"
   };
   return (
     <span className={`rounded-full px-3 py-1 text-xs font-bold ${styles[status] || styles.Pending}`}>

@@ -4,6 +4,13 @@ import { getErrorMessage } from "../api.js";
 import { useAuth } from "../auth.jsx";
 import Notice from "../components/Notice.jsx";
 
+function roleDestination(role) {
+  if (role === "vendor") return "/vendor";
+  if (role === "courier") return "/courier";
+  if (role === "admin") return "/admin";
+  return "/catalog";
+}
+
 function AuthShell({ eyebrow, title, subtitle, children }) {
   return (
     <main className="mx-auto grid min-h-[calc(100vh-66px)] max-w-6xl items-center gap-10 px-4 py-10 md:grid-cols-2 md:px-6">
@@ -41,9 +48,7 @@ export function LoginPage() {
   const [submitting, setSubmitting] = useState(false);
 
   if (user)
-    return (
-      <Navigate to={user.role === "vendor" ? "/vendor" : "/catalog"} replace />
-    );
+    return <Navigate to={roleDestination(user.role)} replace />;
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -51,9 +56,7 @@ export function LoginPage() {
     setError("");
     try {
       const account = await login({ email, password });
-      const destination =
-        location.state?.from ||
-        (account.role === "vendor" ? "/vendor" : "/catalog");
+      const destination = location.state?.from || roleDestination(account.role);
       navigate(destination, { replace: true });
     } catch (requestError) {
       setError(getErrorMessage(requestError, "Could not log in."));
@@ -124,9 +127,7 @@ export function RegisterPage() {
   const [submitting, setSubmitting] = useState(false);
 
   if (user)
-    return (
-      <Navigate to={user.role === "vendor" ? "/vendor" : "/catalog"} replace />
-    );
+    return <Navigate to={roleDestination(user.role)} replace />;
 
   async function handleSubmit(event) {
     event.preventDefault();

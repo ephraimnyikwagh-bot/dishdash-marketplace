@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import {
   Link,
   Navigate,
@@ -20,6 +20,10 @@ import OrdersPage from "./pages/OrdersPage.jsx";
 import OrderDetailPage from "./pages/OrderDetailPage.jsx";
 import CourierDashboardPage from "./pages/CourierDashboardPage.jsx";
 import { RealtimeProvider, useRealtime } from "./realtime.jsx";
+const AdminDashboardPage = lazy(() => import("./pages/AdminDashboardPage.jsx"));
+const AdminLedgerPage = lazy(() => import("./pages/AdminLedgerPage.jsx"));
+const AdminDisputesPage = lazy(() => import("./pages/AdminDisputesPage.jsx"));
+const AdminUsersPage = lazy(() => import("./pages/AdminUsersPage.jsx"));
 
 function Spinner({ label = "Loading..." }) {
   return (
@@ -37,7 +41,7 @@ function RoleHome({ role }) {
   if (role === "vendor") return <Navigate to="/vendor" replace />;
   if (role === "buyer") return <Navigate to="/catalog" replace />;
   if (role === "courier") return <Navigate to="/courier" replace />;
-  if (role === "admin") return <Navigate to="/orders" replace />;
+  if (role === "admin") return <Navigate to="/admin" replace />;
   return <Navigate to="/login" replace />;
 }
 
@@ -78,7 +82,7 @@ function Navbar() {
                 : user.role === "courier"
                   ? "/courier"
                   : user.role === "admin"
-                    ? "/orders"
+                    ? "/admin"
                     : "/catalog"
               : "/login"
           }
@@ -140,9 +144,13 @@ function Navbar() {
             </Link>
           )}
           {user?.role === "admin" && (
-            <Link className="nav-link" to="/orders">
-              All orders
-            </Link>
+            <>
+              <Link className="nav-link" to="/admin">Dashboard</Link>
+              <Link className="nav-link" to="/admin/orders">Orders</Link>
+              <Link className="nav-link" to="/admin/users">Users</Link>
+              <Link className="nav-link" to="/admin/ledger">Ledger</Link>
+              <Link className="nav-link" to="/admin/disputes">Disputes</Link>
+            </>
           )}
           {user && (
             <div className="relative">
@@ -278,6 +286,13 @@ function AppFrame() {
         <Route element={<Guard roles={["courier"]} />}>
           <Route path="/courier" element={<CourierDashboardPage />} />
           <Route path="/orders/:orderId" element={<OrderDetailPage />} />
+        </Route>
+        <Route element={<Guard roles={["admin"]} />}>
+          <Route path="/admin" element={<Suspense fallback={<Spinner label="Loading admin..." />}><AdminDashboardPage /></Suspense>} />
+          <Route path="/admin/orders" element={<Suspense fallback={<Spinner label="Loading orders..." />}><AdminDashboardPage ordersOnly /></Suspense>} />
+          <Route path="/admin/users" element={<Suspense fallback={<Spinner label="Loading users..." />}><AdminUsersPage /></Suspense>} />
+          <Route path="/admin/ledger" element={<Suspense fallback={<Spinner label="Loading ledger..." />}><AdminLedgerPage /></Suspense>} />
+          <Route path="/admin/disputes" element={<Suspense fallback={<Spinner label="Loading disputes..." />}><AdminDisputesPage /></Suspense>} />
         </Route>
         <Route path="*" element={<RoleHome role={user?.role} />} />
       </Routes>

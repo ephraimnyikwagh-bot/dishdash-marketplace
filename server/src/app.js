@@ -9,6 +9,8 @@ import { createPaymentsRouter } from "./routes/payments.js";
 import ordersRoutes from "./routes/orders.js";
 import ledgerRoutes from "./routes/ledger.js";
 import courierRoutes from "./routes/courier.js";
+import adminRoutes from "./routes/admin.js";
+import disputeRoutes from "./routes/disputes.js";
 
 const app = express();
 
@@ -42,6 +44,8 @@ app.use("/api/payments", createPaymentsRouter());
 app.use("/api/orders", ordersRoutes);
 app.use("/api/courier", courierRoutes);
 app.use("/api/ledger", ledgerRoutes);
+app.use("/api/admin", adminRoutes);
+app.use("/api/disputes", disputeRoutes);
 
 app.use((error, _request, response, _next) => {
   console.error("Unhandled API error:", error);

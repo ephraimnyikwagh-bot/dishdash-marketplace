@@ -78,6 +78,20 @@ export function createFlutterwaveProvider() {
         config.secretKey
       );
     },
+    async refund({ transactionId, amountCents, idempotencyKey }) {
+      if (!transactionId) {
+        throw new Error("Flutterwave transaction ID is required for a refund");
+      }
+      return requestJson(
+        `${config.api}/transactions/${encodeURIComponent(transactionId)}/refund`,
+        config.secretKey,
+        {
+          method: "POST",
+          headers: { "Idempotency-Key": idempotencyKey },
+          body: JSON.stringify({ amount: (amountCents / 100).toFixed(2) })
+        }
+      );
+    },
     verifyWebhookSignature(signature) {
       if (typeof signature !== "string") return false;
       const expected = Buffer.from(config.webhookHash);

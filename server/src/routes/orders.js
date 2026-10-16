@@ -3,6 +3,8 @@ import { query, validationResult } from "express-validator";
 import { allowRoles, requireAuth } from "../middleware/auth.js";
 import Order from "../models/Order.js";
 import OrderItem from "../models/OrderItem.js";
+import Receipt from "../models/Receipt.js";
+import { ensureReceipt } from "../services/receipts.js";
 import {
   OrderTransitionError,
   transitionOrder
@@ -121,6 +123,49 @@ router.get(
   requireAuth,
   allowRoles("buyer", "vendor", "courier", "admin"),
   getOrder
+);
+
+router.get(
+  "/:orderId/receipt",
+  requireAuth,
+  allowRoles("buyer", "vendor", "admin"),
+  async (request, response, next) => {
+    try {
+      const order = await Order.findById(request.params.orderId)
+        .select("buyer vendor status")
+        .lean();
+      if (!order) {
+        response.status(404).json({ message: "Order not found" });
+        return;
+      }
+      const authorized =
+        request.auth.role === "admin" ||
+        (request.auth.role === "buyer" &&
+          String(order.buyer) === request.auth.id) ||
+        (request.auth.role === "vendor" &&
+          String(order.vendor) === request.auth.id);
+      if (!authorized) {
+        response.status(404).json({ message: "Receipt not found" });
+        return;
+      }
+      if (!["Paid", "Shipped", "Delivered", "Refunded"].includes(order.status)) {
+        response.status(409).json({ message: "Receipt is available after payment" });
+        return;
+      }
+
+      const receipt = await Receipt.findOne({ order: order._id });
+      const saved = receipt || (await ensureReceipt(order._id));
+      response
+        .type("application/pdf")
+        .set(
+          "Content-Disposition",
+          `attachment; filename="${saved.receiptNumber}.pdf"`
+        )
+        .send(saved.pdfData);
+    } catch (error) {
+      next(error);
+    }
+  }
 );
 
 router.patch(

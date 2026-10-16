@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 const intents = new Map();
+const refunds = new Map();
 
 export function createMockProvider() {
   return {
@@ -27,6 +28,22 @@ export function createMockProvider() {
       if (!intent) return null;
       intent.status = status;
       return intent;
+    },
+    async refund({ reference, amountCents, idempotencyKey }) {
+      if (refunds.has(idempotencyKey)) return refunds.get(idempotencyKey);
+      const intent = [...intents.values()].find((item) => item.id === reference);
+      if (intent && intent.status !== "succeeded") {
+        throw new Error("Only successful mock payments can be refunded");
+      }
+      const refund = {
+        id: `mock_refund_${randomUUID()}`,
+        reference,
+        amountCents,
+        status: "refunded"
+      };
+      if (intent) intent.status = "refunded";
+      refunds.set(idempotencyKey, refund);
+      return refund;
     }
   };
 }

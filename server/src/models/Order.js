@@ -4,7 +4,15 @@ const orderStatusHistorySchema = new mongoose.Schema(
   {
     status: {
       type: String,
-      enum: ["Pending", "Paid", "Shipped", "Delivered", "Failed", "Cancelled"],
+      enum: [
+        "Pending",
+        "Paid",
+        "Shipped",
+        "Delivered",
+        "Failed",
+        "Cancelled",
+        "Refunded"
+      ],
       required: true
     },
     changedBy: {
@@ -43,7 +51,15 @@ const orderSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["Pending", "Paid", "Shipped", "Delivered", "Failed", "Cancelled"],
+      enum: [
+        "Pending",
+        "Paid",
+        "Shipped",
+        "Delivered",
+        "Failed",
+        "Cancelled",
+        "Refunded"
+      ],
       default: "Pending",
       index: true
     },

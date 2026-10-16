@@ -15,10 +15,16 @@ const disputeSchema = new mongoose.Schema(
       index: true
     },
     reason: { type: String, required: true, trim: true, maxlength: 2000 },
+    origin: {
+      type: String,
+      enum: ["buyer", "system"],
+      default: "buyer",
+      required: true
+    },
     status: {
       type: String,
-      enum: ["open", "resolved", "refunded"],
-      default: "open",
+      enum: ["Open", "Under review", "Resolved", "Refunded"],
+      default: "Open",
       index: true
     },
     resolution: { type: String, trim: true, maxlength: 2000, default: "" },

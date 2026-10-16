@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import Cart from "../models/Cart.js";
+import Dispute from "../models/Dispute.js";
 import LedgerEntry from "../models/LedgerEntry.js";
 import Order from "../models/Order.js";
 import OrderItem from "../models/OrderItem.js";
@@ -9,6 +10,7 @@ import User from "../models/User.js";
 import WebhookEvent from "../models/WebhookEvent.js";
 import { createPaymentProvider } from "./payments/index.js";
 import { emitOrderUpdated } from "./realtime.js";
+import { ensureReceipt } from "./receipts.js";
 
 export class CheckoutError extends Error {
   constructor(statusCode, message) {
@@ -229,6 +231,7 @@ export async function processPaymentEvent({
   eventId,
   reference,
   outcome,
+  providerTransactionId,
   connection = mongoose.connection
 }) {
   if (!["succeeded", "failed", "expired"].includes(outcome)) {
@@ -271,6 +274,9 @@ export async function processPaymentEvent({
 
         if (outcome === "succeeded") {
           payment.status = "succeeded";
+          if (providerTransactionId) {
+            payment.providerTransactionId = String(providerTransactionId);
+          }
           payment.confirmedAt = new Date();
           order.status = "Paid";
           order.statusHistory.push({
@@ -342,6 +348,19 @@ export async function processPaymentEvent({
             throw new Error(`Could not restore stock for product ${item.product}`);
           }
         }
+        await Dispute.findOneAndUpdate(
+          { order: order._id },
+          {
+            $setOnInsert: {
+              order: order._id,
+              buyer: order.buyer,
+              reason: "Payment failed or expired and requires review.",
+              origin: "system",
+              status: "Open"
+            }
+          },
+          { upsert: true, session, setDefaultsOnInsert: true }
+        );
       },
       {
         readConcern: { level: "snapshot" },
@@ -359,5 +378,13 @@ export async function processPaymentEvent({
   }
 
   if (updatedOrder) emitOrderUpdated(updatedOrder);
+  if (outcome === "succeeded") {
+    const paidPayment = await Payment.findOne({
+      provider: providerName,
+      providerReference: reference,
+      status: "succeeded"
+    });
+    if (paidPayment) await ensureReceipt(paidPayment.order);
+  }
   return { duplicate, ignored: false };
 }

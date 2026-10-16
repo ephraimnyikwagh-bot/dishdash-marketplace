@@ -13,6 +13,7 @@ import Order from "../models/Order.js";
 import OrderItem from "../models/OrderItem.js";
 import Payment from "../models/Payment.js";
 import Product from "../models/Product.js";
+import Receipt from "../models/Receipt.js";
 import User from "../models/User.js";
 import WebhookEvent from "../models/WebhookEvent.js";
 import { processPaymentEvent } from "../services/checkout.js";
@@ -49,6 +50,7 @@ describe("checkout, payments, orders, and ledger", () => {
       OrderItem.deleteMany({}),
       Payment.deleteMany({}),
       Product.deleteMany({}),
+      Receipt.deleteMany({}),
       User.deleteMany({}),
       WebhookEvent.deleteMany({})
     ]);
@@ -83,10 +85,11 @@ describe("checkout, payments, orders, and ledger", () => {
   }
 
   async function putInCart(buyer, product, quantity = 1) {
-    await Cart.create({
-      buyer: buyer._id,
-      items: [{ product: product._id, quantity }]
-    });
+    await Cart.findOneAndUpdate(
+      { buyer: buyer._id },
+      { $set: { items: [{ product: product._id, quantity }] } },
+      { upsert: true, new: true }
+    );
   }
 
   async function checkout(buyer, key = `test-key-${new mongoose.Types.ObjectId()}`) {
@@ -337,6 +340,146 @@ describe("checkout, payments, orders, and ledger", () => {
       creditsCents: 1000,
       balanced: true
     });
+  });
+
+  test("receipt is generated once for a paid order and enforces buyer, vendor, admin access", async () => {
+      const vendor = await createUser("vendor");
+      const buyer = await createUser("buyer");
+      const otherBuyer = await createUser("buyer");
+      const admin = await createUser("admin");
+      const courier = await createUser("courier");
+      const product = await createProduct(vendor, { priceCents: 1250 });
+      await putInCart(buyer, product, 2);
+      const created = await checkout(buyer);
+      await simulate(buyer, created.body.payment.id);
+
+      const receipt = await Receipt.findOne({ order: created.body.order._id });
+      expect(receipt).not.toBeNull();
+      expect(receipt.pdfData.subarray(0, 4).toString()).toBe("%PDF");
+
+      const fetchReceipt = (user) =>
+        request(app)
+          .get(`/api/orders/${created.body.order._id}/receipt`)
+          .set("Authorization", `Bearer ${tokenFor(user)}`)
+          .buffer(true)
+          .parse((response, callback) => {
+            const chunks = [];
+            response.on("data", (chunk) => chunks.push(chunk));
+            response.on("end", () => callback(null, Buffer.concat(chunks)));
+          });
+      for (const allowedUser of [buyer, vendor, admin]) {
+        const response = await fetchReceipt(allowedUser);
+        expect(response.status).toBe(200);
+        expect(response.headers["content-type"]).toMatch(/application\/pdf/);
+        expect(response.body.subarray(0, 4).toString()).toBe("%PDF");
+      }
+      expect((await fetchReceipt(otherBuyer)).status).toBe(404);
+      expect((await fetchReceipt(courier)).status).toBe(403);
+      expect(await Receipt.countDocuments({ order: created.body.order._id })).toBe(1);
+    });
+
+  test("admin dashboard returns transaction, status, user, delivery, and fee totals", async () => {
+      const vendor = await createUser("vendor");
+      const buyer = await createUser("buyer");
+      const admin = await createUser("admin");
+      const courier = await createUser("courier");
+      const product = await createProduct(vendor, { priceCents: 2000 });
+      await putInCart(buyer, product);
+      const created = await checkout(buyer);
+      await simulate(buyer, created.body.payment.id);
+      await updateOrderStatus(vendor, created.body.order._id, "Shipped");
+      await request(app)
+        .post(`/api/courier/${created.body.order._id}/accept`)
+        .set("Authorization", `Bearer ${tokenFor(courier)}`);
+
+      const response = await request(app)
+        .get("/api/admin/dashboard")
+        .set("Authorization", `Bearer ${tokenFor(admin)}`);
+      expect(response.status).toBe(200);
+      expect(response.body).toMatchObject({
+        transactionVolumeCents: 2000,
+        activeDeliveries: 1,
+        totalUsers: 4,
+        ordersByStatus: { Shipped: 1 },
+        userCounts: { buyer: 1, vendor: 1, courier: 1, admin: 1 },
+        platformFeeRevenue: {
+          last7DaysCents: 200,
+          last30DaysCents: 200
+        }
+      });
+
+      const forbidden = await request(app)
+        .get("/api/admin/dashboard")
+        .set("Authorization", `Bearer ${tokenFor(buyer)}`);
+      expect(forbidden.status).toBe(403);
+    });
+
+  test("admin refund reverses ledger entries, is balanced, and is idempotent", async () => {
+      const vendor = await createUser("vendor");
+      const buyer = await createUser("buyer");
+      const admin = await createUser("admin");
+      const product = await createProduct(vendor, { priceCents: 2000 });
+      await putInCart(buyer, product);
+      const created = await checkout(buyer);
+      await simulate(buyer, created.body.payment.id);
+      const createdDispute = await request(app)
+        .post("/api/disputes")
+        .set("Authorization", `Bearer ${tokenFor(buyer)}`)
+        .send({
+          orderId: created.body.order._id,
+          reason: "The meal was not delivered as described."
+        });
+      expect(createdDispute.status).toBe(201);
+
+      const refund = () =>
+        request(app)
+          .patch(`/api/disputes/${createdDispute.body.dispute._id}`)
+          .set("Authorization", `Bearer ${tokenFor(admin)}`)
+          .send({ status: "Refunded" });
+      const first = await refund();
+      const second = await refund();
+      expect(first.status).toBe(200);
+      expect(first.body.duplicate).toBe(false);
+      expect(second.status).toBe(200);
+      expect(second.body.duplicate).toBe(true);
+      expect(second.body.dispute.status).toBe("Refunded");
+      expect(await Order.findById(created.body.order._id).then((order) => order.status)).toBe("Refunded");
+      expect(await Payment.findById(created.body.payment.id).then((payment) => payment.status)).toBe("refunded");
+
+      const entries = await LedgerEntry.find({ order: created.body.order._id });
+      const debits = entries.filter((entry) => entry.direction === "debit")
+        .reduce((total, entry) => total + entry.amountCents, 0);
+      const credits = entries.filter((entry) => entry.direction === "credit")
+        .reduce((total, entry) => total + entry.amountCents, 0);
+      expect(debits).toBe(credits);
+      expect(debits).toBe(4000);
+      expect(credits).toBe(4000);
+      expect(entries).toHaveLength(6);
+    });
+
+  test("failed payments create an admin-visible dispute and non-admins cannot resolve disputes", async () => {
+      const vendor = await createUser("vendor");
+      const buyer = await createUser("buyer");
+      const admin = await createUser("admin");
+      const product = await createProduct(vendor);
+      await putInCart(buyer, product);
+      const created = await checkout(buyer);
+      await simulate(buyer, created.body.payment.id, "failed");
+
+      const adminList = await request(app)
+        .get("/api/disputes")
+        .set("Authorization", `Bearer ${tokenFor(admin)}`);
+      expect(adminList.status).toBe(200);
+      expect(adminList.body.disputes).toHaveLength(1);
+      expect(adminList.body.disputes[0]).toMatchObject({
+        origin: "system",
+        status: "Open"
+      });
+      const forbidden = await request(app)
+        .patch(`/api/disputes/${adminList.body.disputes[0]._id}`)
+        .set("Authorization", `Bearer ${tokenFor(buyer)}`)
+        .send({ status: "Resolved" });
+      expect(forbidden.status).toBe(403);
   });
 
   test("enforces lifecycle transitions, role restrictions, and records history", async () => {

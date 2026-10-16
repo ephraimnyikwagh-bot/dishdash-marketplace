@@ -17,6 +17,10 @@ export default function OrderDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [receiptBusy, setReceiptBusy] = useState(false);
+  const [disputeReason, setDisputeReason] = useState("");
+  const [disputeBusy, setDisputeBusy] = useState(false);
+  const [disputeSubmitted, setDisputeSubmitted] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -83,6 +87,43 @@ export default function OrderDetailPage() {
     }
   }
 
+  async function downloadReceipt() {
+    setReceiptBusy(true);
+    setError("");
+    try {
+      const response = await api.get(`/orders/${orderId}/receipt`, {
+        responseType: "blob"
+      });
+      const url = window.URL.createObjectURL(response.data);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `DishDash-receipt-${String(orderId).slice(-8)}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (requestError) {
+      setError(getErrorMessage(requestError, "Could not download the receipt."));
+    } finally {
+      setReceiptBusy(false);
+    }
+  }
+
+  async function reportProblem(event) {
+    event.preventDefault();
+    setDisputeBusy(true);
+    setError("");
+    try {
+      await api.post("/disputes", { orderId, reason: disputeReason });
+      setDisputeSubmitted(true);
+      setDisputeReason("");
+    } catch (requestError) {
+      setError(getErrorMessage(requestError, "Could not submit your report."));
+    } finally {
+      setDisputeBusy(false);
+    }
+  }
+
   if (loading) return <Loading label="Loading order..." />;
   if (error) {
     return (
@@ -94,6 +135,9 @@ export default function OrderDetailPage() {
   if (!data) return null;
 
   const { order, items } = data;
+  const receiptAvailable = ["Paid", "Shipped", "Delivered", "Refunded"].includes(
+    order.status
+  );
   const heading =
     order.status === "Paid"
       ? "Order confirmed"
@@ -101,6 +145,8 @@ export default function OrderDetailPage() {
         ? "Payment failed"
         : order.status === "Cancelled"
           ? "Order cancelled"
+          : order.status === "Refunded"
+            ? "Order refunded"
           : "Order details";
   return (
     <main className="mx-auto max-w-3xl px-4 pb-16 pt-10 sm:px-6">
@@ -146,6 +192,48 @@ export default function OrderDetailPage() {
             can add the items to your cart and try again.
           </p>
         )}
+        {receiptAvailable && (
+          <button
+            className="button-secondary mt-5"
+            disabled={receiptBusy}
+            onClick={downloadReceipt}
+            type="button"
+          >
+            {receiptBusy ? "Preparing receipt..." : "Download receipt"}
+          </button>
+        )}
+        {user.role === "buyer" &&
+          ["Paid", "Delivered"].includes(order.status) && (
+            <section className="mt-7 rounded-2xl bg-orange-50 p-5">
+              <h2 className="font-extrabold">Report a problem</h2>
+              {disputeSubmitted ? (
+                <p className="mt-2 text-sm text-emerald-800">
+                  Your report was sent to the marketplace admin team.
+                </p>
+              ) : (
+                <form className="mt-3 space-y-3" onSubmit={reportProblem}>
+                  <label className="field-label">
+                    Tell us what happened
+                    <textarea
+                      className="field-input min-h-24"
+                      maxLength={2000}
+                      minLength={5}
+                      onChange={(event) => setDisputeReason(event.target.value)}
+                      required
+                      value={disputeReason}
+                    />
+                  </label>
+                  <button
+                    className="button-secondary"
+                    disabled={disputeBusy}
+                    type="submit"
+                  >
+                    {disputeBusy ? "Submitting..." : "Submit report"}
+                  </button>
+                </form>
+              )}
+            </section>
+          )}
         <section className="mt-8">
           <h2 className="text-lg font-extrabold">Live order timeline</h2>
           <ol className="mt-4 space-y-3">
@@ -181,13 +269,19 @@ export default function OrderDetailPage() {
                 </li>
               );
             })}
-            {["Failed", "Cancelled"].includes(order.status) && (
+            {["Failed", "Cancelled", "Refunded"].includes(order.status) && (
               <li className="flex items-start gap-3">
-                <span className="mt-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-red-100 text-xs font-bold text-red-700">
+                <span className={`mt-0.5 flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ${
+                  order.status === "Refunded"
+                    ? "bg-purple-100 text-purple-700"
+                    : "bg-red-100 text-red-700"
+                }`}>
                   !
                 </span>
                 <div>
-                  <p className="font-semibold text-red-800">{order.status}</p>
+                  <p className={`font-semibold ${
+                    order.status === "Refunded" ? "text-purple-800" : "text-red-800"
+                  }`}>{order.status}</p>
                   {order.statusHistory
                     ?.filter((item) => item.status === order.status)
                     .slice(-1)
