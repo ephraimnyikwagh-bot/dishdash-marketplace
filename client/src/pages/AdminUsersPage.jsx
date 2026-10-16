@@ -38,7 +38,7 @@ export default function AdminUsersPage() {
     <main className="mx-auto max-w-6xl px-4 pb-16 pt-8 sm:px-6">
       <h1 className="text-3xl font-black">Marketplace users</h1>
       <p className="mt-2 text-sm text-slate-500">
-        {role ? `Filtered by ${role}.` : "Paginated directory of all account roles."}
+        {role ? `Filtered by ${role === "vendor" ? "seller" : role}.` : "Paginated directory of all account roles."}
       </p>
       <Notice className="mt-5">{error}</Notice>
       <div className="mt-6 overflow-x-auto rounded-2xl bg-white shadow-sm ring-1 ring-slate-100">
@@ -51,7 +51,7 @@ export default function AdminUsersPage() {
               <tr key={user._id}>
                 <td className="px-5 py-3 font-semibold">{user.name}</td>
                 <td className="px-5 py-3">{user.email}</td>
-                <td className="px-5 py-3 capitalize">{user.role}</td>
+                <td className="px-5 py-3 capitalize">{user.role === "vendor" ? "Seller" : user.role}</td>
                 <td className="px-5 py-3">{user.isActive ? "Active" : "Inactive"}</td>
                 <td className="px-5 py-3">{new Date(user.createdAt).toLocaleDateString()}</td>
               </tr>

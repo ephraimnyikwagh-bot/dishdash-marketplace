@@ -24,8 +24,8 @@ export function requireAuth(request, response, next) {
   const secret = getJwtSecret();
   try {
     const payload = jwt.verify(match[1], secret, {
-      issuer: "food-marketplace-api",
-      audience: "food-marketplace"
+      issuer: "carted-api",
+      audience: "carted"
     });
 
     if (

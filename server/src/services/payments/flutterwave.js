@@ -49,7 +49,7 @@ export function createFlutterwaveProvider() {
     name: "flutterwave",
     publicKey: config.publicKey,
     async createIntent({ amountCents, currency, idempotencyKey, email, name }) {
-      const txRef = `dishdash-${idempotencyKey}`;
+      const txRef = `carted-${idempotencyKey}`;
       const data = await requestJson(`${config.api}/payments`, config.secretKey, {
         method: "POST",
         headers: { "Idempotency-Key": idempotencyKey },
@@ -59,7 +59,7 @@ export function createFlutterwaveProvider() {
           currency,
           redirect_url: process.env.FLW_REDIRECT_URL || "http://localhost:5173/payment/return",
           customer: { email, name },
-          customizations: { title: "DishDash", description: "Food marketplace order" },
+          customizations: { title: "Carted", description: "Marketplace order" },
           meta: { idempotency_key: idempotencyKey }
         })
       });

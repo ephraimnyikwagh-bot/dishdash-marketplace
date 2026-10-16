@@ -6,6 +6,7 @@ import { formatPrice } from "../money.js";
 
 export default function AdminLedgerPage() {
   const [integrity, setIntegrity] = useState(null);
+  const [escrow, setEscrow] = useState(null);
   const [entries, setEntries] = useState([]);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -20,13 +21,15 @@ export default function AdminLedgerPage() {
     setLoading(true);
     setError("");
     try {
-      const [integrityResponse, entriesResponse] = await Promise.all([
+      const [integrityResponse, entriesResponse, escrowResponse] = await Promise.all([
         api.get("/ledger/integrity"),
         api.get("/ledger/entries", {
           params: { page, limit: 25, ...filters }
-        })
+        }),
+        api.get("/ledger/escrow")
       ]);
       setIntegrity(integrityResponse.data);
+      setEscrow(escrowResponse.data);
       setEntries(entriesResponse.data.entries);
       setTotalPages(Math.max(1, entriesResponse.data.totalPages));
     } catch (requestError) {
@@ -57,8 +60,19 @@ export default function AdminLedgerPage() {
       <h1 className="mt-2 text-3xl font-black">Ledger audit</h1>
       <Notice className="mt-5">{error}</Notice>
       <section className="mt-6 grid gap-4 sm:grid-cols-2">
+        <article className="glass-strong p-5">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="font-extrabold">Escrow overview</h2>
+            <span className={`rounded-full px-3 py-1 text-xs font-bold ${integrity?.escrow?.nonNegative && integrity?.escrow?.matchesUnreleasedPaidOrders ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"}`}>
+              {integrity?.escrow?.nonNegative && integrity?.escrow?.matchesUnreleasedPaidOrders ? "Verified" : "Check required"}
+            </span>
+          </div>
+          <p className="mt-4 text-2xl font-black">{formatPrice(escrow?.pendingCents || 0)}</p>
+          <p className="mt-1 text-sm text-slate-600">{escrow?.orderCount || 0} held orders · {escrow?.dueCount || 0} due for release</p>
+          <p className="mt-3 text-xs text-slate-500">Ledger balance: {formatPrice(integrity?.escrow?.balanceCents || 0)} / expected {formatPrice(integrity?.escrow?.expectedCents || 0)}</p>
+        </article>
         {(integrity?.currencies || []).map((currency) => (
-          <article className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-100" key={currency.currency}>
+          <article className="glass-strong p-5" key={currency.currency}>
             <div className="flex items-center justify-between gap-3">
               <h2 className="font-extrabold">{currency.currency} totals</h2>
               <span className={`rounded-full px-3 py-1 text-xs font-bold ${currency.balanced ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"}`}>
@@ -86,7 +100,7 @@ export default function AdminLedgerPage() {
             {entries.map((entry) => (
               <tr key={entry._id}>
                 <td className="px-4 py-3">{new Date(entry.createdAt).toLocaleString()}</td>
-                <td className="px-4 py-3 font-mono text-xs">{String(entry.order?._id || entry.order).slice(-8)}</td>
+                <td className="px-4 py-3 font-mono text-xs">{String(entry.order?._id || entry.order || entry.transactionId).slice(-8)}</td>
                 <td className="px-4 py-3">{entry.account}</td>
                 <td className="px-4 py-3 capitalize">{entry.direction}</td>
                 <td className="px-4 py-3">{formatPrice(entry.amountCents, entry.currency)}</td>

@@ -5,10 +5,10 @@ export default function ProductImage({ src, name }) {
   const [failed, setFailed] = useState(false);
   const imageUrl = src?.startsWith("/") ? `${apiOrigin}${src}` : src;
   return (
-    <div className="group flex aspect-[4/3] items-center justify-center overflow-hidden bg-orange-50">
+    <div className="group flex aspect-[4/3] items-center justify-center overflow-hidden bg-primary/10">
       {!failed && imageUrl ? (
         <img
-          alt={`${name} food`}
+          alt={`${name} listing`}
           className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
           decoding="async"
           loading="lazy"
@@ -20,7 +20,7 @@ export default function ProductImage({ src, name }) {
           alt={`${name} image placeholder`}
           className="h-full w-full object-cover"
           loading="lazy"
-          src="/food-placeholder.svg"
+          src="/listing-placeholder.svg"
         />
       )}
     </div>

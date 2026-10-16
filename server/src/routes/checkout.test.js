@@ -69,16 +69,16 @@ describe("checkout, payments, orders, and ledger", () => {
   function tokenFor(user) {
     return jwt.sign({ role: user.role }, jwtSecret, {
       subject: String(user._id),
-      issuer: "food-marketplace-api",
-      audience: "food-marketplace"
+      issuer: "carted-api",
+      audience: "carted"
     });
   }
 
   async function createProduct(vendor, overrides = {}) {
     return Product.create({
       vendor: vendor._id,
-      name: "Test meal",
-      category: "Meals",
+      name: "Test item",
+      category: "Electronics",
       priceCents: 1000,
       stock: 5,
       ...overrides
@@ -309,7 +309,11 @@ describe("checkout, payments, orders, and ledger", () => {
       .reduce((sum, entry) => sum + entry.amountCents, 0);
     const credit = entries.filter((entry) => entry.direction === "credit")
       .reduce((sum, entry) => sum + entry.amountCents, 0);
-    expect(entries).toHaveLength(3);
+    expect(entries).toHaveLength(2);
+    expect(entries.map((entry) => entry.account)).toEqual([
+      "buyer_payment",
+      "escrow"
+    ]);
     expect(debit).toBe(credit);
     expect(debit).toBe(4000);
   });
@@ -456,8 +460,8 @@ describe("checkout, payments, orders, and ledger", () => {
         ordersByStatus: { Shipped: 1 },
         userCounts: { buyer: 1, vendor: 1, courier: 1, admin: 1 },
         platformFeeRevenue: {
-          last7DaysCents: 200,
-          last30DaysCents: 200
+          last7DaysCents: 0,
+          last30DaysCents: 0
         }
       });
 
@@ -480,7 +484,7 @@ describe("checkout, payments, orders, and ledger", () => {
         .set("Authorization", `Bearer ${tokenFor(buyer)}`)
         .send({
           orderId: created.body.order._id,
-          reason: "The meal was not delivered as described."
+          reason: "The item was not delivered as described."
         });
       expect(createdDispute.status).toBe(201);
 
@@ -507,7 +511,7 @@ describe("checkout, payments, orders, and ledger", () => {
       expect(debits).toBe(credits);
       expect(debits).toBe(4000);
       expect(credits).toBe(4000);
-      expect(entries).toHaveLength(6);
+      expect(entries).toHaveLength(4);
     });
 
   test("failed payments create an admin-visible dispute and non-admins cannot resolve disputes", async () => {
@@ -604,6 +608,39 @@ describe("checkout, payments, orders, and ledger", () => {
       const tooLate = await updateOrderStatus(buyer, paid.body.order._id, "Cancelled");
       expect(tooLate.status).toBe(409);
       expect(tooLate.body.message).toMatch(/cannot change order from Paid to Cancelled/i);
+  });
+
+  test("pickup orders require seller readiness and buyer confirmation without courier delivery", async () => {
+      const vendor = await createUser("vendor");
+      const buyer = await createUser("buyer");
+      const product = await createProduct(vendor, { stock: 2 });
+      await putInCart(buyer, product);
+
+      const created = await request(app)
+        .post("/api/checkout")
+        .set("Authorization", `Bearer ${tokenFor(buyer)}`)
+        .set("Idempotency-Key", "pickup-checkout-key")
+        .send({ deliveryMethod: "pickup" });
+      expect(created.status).toBe(201);
+      expect(created.body.order.deliveryMethod).toBe("pickup");
+      await simulate(buyer, created.body.payment.id);
+
+      const courier = await createUser("courier");
+      const wrongDeliveryAction = await updateOrderStatus(vendor, created.body.order._id, "Shipped");
+      expect(wrongDeliveryAction.status).toBe(409);
+      const notReady = await updateOrderStatus(buyer, created.body.order._id, "Delivered");
+      expect(notReady.status).toBe(409);
+      const ready = await updateOrderStatus(vendor, created.body.order._id, "Ready for pickup");
+      expect(ready.status).toBe(200);
+      const courierCannotAcceptPickup = await request(app)
+        .post(`/api/courier/${created.body.order._id}/accept`)
+        .set("Authorization", `Bearer ${tokenFor(courier)}`);
+      expect(courierCannotAcceptPickup.status).toBe(409);
+      const confirmed = await updateOrderStatus(buyer, created.body.order._id, "Delivered");
+      expect(confirmed.status).toBe(200);
+      expect(confirmed.body.order.statusHistory.map((entry) => entry.status)).toEqual([
+        "Pending", "Paid", "Ready for pickup", "Delivered"
+      ]);
   });
 
   test("courier assignment is atomic when two couriers accept the same order", async () => {

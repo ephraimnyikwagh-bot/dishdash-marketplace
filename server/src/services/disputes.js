@@ -4,6 +4,7 @@ import LedgerEntry from "../models/LedgerEntry.js";
 import Order from "../models/Order.js";
 import Payment from "../models/Payment.js";
 import { createPaymentProvider } from "./payments/index.js";
+import { getEscrowBalanceCents, releaseEscrowInSession } from "./escrow.js";
 import { emitOrderUpdated } from "./realtime.js";
 
 export class DisputeError extends Error {
@@ -17,28 +18,40 @@ export async function createBuyerDispute({ buyerId, orderId, reason }) {
   if (!mongoose.isValidObjectId(orderId)) {
     throw new DisputeError(400, "Invalid order ID");
   }
-  const order = await Order.findOne({ _id: orderId, buyer: buyerId });
-  if (!order) throw new DisputeError(404, "Order not found");
-  if (!["Paid", "Delivered"].includes(order.status)) {
-    throw new DisputeError(
-      409,
-      "A dispute can only be raised for a Paid or Delivered order"
-    );
-  }
+  const session = await mongoose.startSession();
+  let created;
   try {
-    return await Dispute.create({
-      order: order._id,
-      buyer: buyerId,
-      reason: reason.trim(),
-      origin: "buyer",
-      status: "Open"
+    await session.withTransaction(async () => {
+      const order = await Order.findOne({ _id: orderId, buyer: buyerId }).session(session);
+      if (!order) throw new DisputeError(404, "Order not found");
+      if (!["Paid", "Shipped", "Ready for pickup", "Delivered"].includes(order.status)) {
+        throw new DisputeError(
+          409,
+          "A dispute can only be raised for a paid, in-progress, or delivered order"
+        );
+      }
+      order.escrowVersion += 1;
+      await order.save({ session });
+      [created] = await Dispute.create(
+        [{
+          order: order._id,
+          buyer: buyerId,
+          reason: reason.trim(),
+          origin: "buyer",
+          status: "Open"
+        }],
+        { session }
+      );
     });
   } catch (error) {
     if (error.code === 11000) {
       throw new DisputeError(409, "A dispute already exists for this order");
     }
     throw error;
+  } finally {
+    await session.endSession();
   }
+  return created;
 }
 
 export async function resolveDispute({
@@ -102,7 +115,7 @@ export async function resolveDispute({
       if (action === "Refunded") {
         const orderRecord = await Order.findOne({
           _id: current.order,
-          status: { $in: ["Paid", "Shipped", "Delivered"] }
+          status: { $in: ["Paid", "Shipped", "Ready for pickup", "Delivered"] }
         }).session(session);
         const paymentRecord = await Payment.findOne({
           order: current.order,
@@ -115,35 +128,74 @@ export async function resolveDispute({
           );
         }
 
-        const originalEntries = await LedgerEntry.find({
+        const hold = await LedgerEntry.findOne({
           order: current.order,
-          idempotencyKey: { $not: /:refund:/ }
+          account: "escrow",
+          direction: "credit",
+          idempotencyKey: `${current.order}:escrow:hold`
         }).session(session);
-        if (!originalEntries.length) {
+        if (!hold || hold.amountCents !== paymentRecord.amountCents) {
           throw new DisputeError(409, "No original ledger entries exist to reverse");
         }
-        const debitTotal = originalEntries
-          .filter((entry) => entry.direction === "debit")
-          .reduce((total, entry) => total + entry.amountCents, 0);
-        const creditTotal = originalEntries
-          .filter((entry) => entry.direction === "credit")
-          .reduce((total, entry) => total + entry.amountCents, 0);
-        if (debitTotal !== paymentRecord.amountCents || debitTotal !== creditTotal) {
-          throw new DisputeError(
-            409,
-            "Original ledger entries are not balanced; refund was not recorded"
-          );
+        const released = await LedgerEntry.exists({
+          order: orderRecord._id,
+          idempotencyKey: `${orderRecord._id}:escrow:release`
+        }).session(session);
+        if (!released && (await getEscrowBalanceCents(session, orderRecord.currency)) < paymentRecord.amountCents) {
+          throw new DisputeError(409, "Escrow balance is insufficient to refund this order");
         }
+        const refundEntries = released
+          ? [
+              {
+                account: "buyer_payment",
+                direction: "credit",
+                amountCents: paymentRecord.amountCents,
+                key: "buyer-payment"
+              },
+              ...(orderRecord.subtotalCents > orderRecord.platformFeeCents
+                ? [{
+                    account: "seller_payable",
+                    direction: "debit",
+                    amountCents: orderRecord.subtotalCents - orderRecord.platformFeeCents,
+                    key: "seller-payable",
+                    owner: orderRecord.vendor
+                  }]
+                : []),
+              ...(orderRecord.platformFeeCents
+                ? [{
+                    account: "platform_fee_revenue",
+                    direction: "debit",
+                    amountCents: orderRecord.platformFeeCents,
+                    key: "platform-fee",
+                    owner: orderRecord.vendor
+                  }]
+                : [])
+            ]
+          : [
+              {
+                account: "escrow",
+                direction: "debit",
+                amountCents: paymentRecord.amountCents,
+                key: "escrow"
+              },
+              {
+                account: "buyer_payment",
+                direction: "credit",
+                amountCents: paymentRecord.amountCents,
+                key: "buyer-payment"
+              }
+            ];
 
         await LedgerEntry.create(
-          originalEntries.map((entry) => ({
+          refundEntries.map((entry) => ({
             transactionId: String(providerRefund?.id || `refund_${paymentRecord._id}`),
             order: orderRecord._id,
+            owner: orderRecord.vendor,
             account: entry.account,
-            direction: entry.direction === "debit" ? "credit" : "debit",
+            direction: entry.direction,
             amountCents: entry.amountCents,
-            currency: entry.currency,
-            idempotencyKey: `${paymentRecord.provider}:${paymentRecord.providerReference}:refund:${entry.account}:${entry.direction}`
+            currency: orderRecord.currency,
+            idempotencyKey: `${orderRecord._id}:refund:${entry.key}`
           })),
           { session, ordered: true }
         );
@@ -151,6 +203,7 @@ export async function resolveDispute({
         paymentRecord.status = "refunded";
         await paymentRecord.save({ session });
         orderRecord.status = "Refunded";
+        orderRecord.escrowStatus = "refunded";
         orderRecord.statusHistory.push({
           status: "Refunded",
           changedBy: adminId,
@@ -170,6 +223,16 @@ export async function resolveDispute({
       current.resolvedBy = adminId;
       current.resolvedAt = new Date();
       await current.save({ session });
+      if (action === "Resolved") {
+        const pickupOrder = await Order.findById(current.order).session(session);
+        if (
+          pickupOrder?.status === "Delivered" &&
+          (pickupOrder.deliveryMethod === "pickup" || pickupOrder.buyerConfirmedAt)
+        ) {
+          await releaseEscrowInSession(pickupOrder, session, { immediate: true });
+          updatedOrder = pickupOrder.toObject();
+        }
+      }
       updatedDispute = current;
     });
   } catch (error) {

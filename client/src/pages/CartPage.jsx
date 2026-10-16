@@ -13,6 +13,7 @@ export default function CartPage() {
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState("");
   const [startingCheckout, setStartingCheckout] = useState(false);
+  const [deliveryMethod, setDeliveryMethod] = useState("delivery");
   const [error, setError] = useState("");
 
   const loadCart = useCallback(async () => {
@@ -78,7 +79,7 @@ export default function CartPage() {
       }
       const { data } = await api.post(
         "/checkout",
-        {},
+        { deliveryMethod },
         { headers: { "Idempotency-Key": key } }
       );
       setCart({ items: [], totalCents: 0 });
@@ -108,13 +109,13 @@ export default function CartPage() {
         <div className="rounded-3xl bg-white px-6 py-16 text-center shadow-sm ring-1 ring-slate-100">
           <div className="text-5xl">🛍️</div>
           <h2 className="mt-4 text-xl font-bold">
-            Your cart is looking hungry
+            Your cart is empty
           </h2>
           <p className="mt-2 text-sm text-slate-500">
-            Add a few local favorites to get started.
+            Add a few listings to get started.
           </p>
           <Link className="button-primary mt-6 inline-flex" to="/catalog">
-            Browse the menu
+            Browse listings
           </Link>
         </div>
       ) : (
@@ -191,6 +192,17 @@ export default function CartPage() {
           </section>
           <aside className="h-fit rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-100">
             <h2 className="text-lg font-extrabold">Order summary</h2>
+            <fieldset className="mt-5 space-y-3">
+              <legend className="mb-2 text-sm font-bold">Receive your order</legend>
+              <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 p-3">
+                <input checked={deliveryMethod === "delivery"} className="mt-1 accent-emerald-700" name="deliveryMethod" onChange={() => setDeliveryMethod("delivery")} type="radio" />
+                <span><strong className="block text-sm">Delivery</strong><span className="text-xs text-slate-500">A courier will deliver your order.</span></span>
+              </label>
+              <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 p-3">
+                <input checked={deliveryMethod === "pickup"} className="mt-1 accent-emerald-700" name="deliveryMethod" onChange={() => setDeliveryMethod("pickup")} type="radio" />
+                <span><strong className="block text-sm">Pickup</strong><span className="text-xs text-slate-500">Collect directly from the seller.</span></span>
+              </label>
+            </fieldset>
             <div className="mt-5 flex justify-between border-b border-slate-100 pb-4 text-sm text-slate-600">
               <span>Subtotal</span>
               <span>{formatPrice(cart.totalCents)}</span>

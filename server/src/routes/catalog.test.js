@@ -25,7 +25,7 @@ describe("catalog and cart routes", () => {
     mongoServer = await MongoMemoryServer.create({
       instance: { launchTimeout: 30000 }
     });
-    await mongoose.connect(mongoServer.getUri("food_marketplace_test"));
+    await mongoose.connect(mongoServer.getUri("carted_marketplace_test"));
   }, 60000);
 
   afterAll(async () => {
@@ -50,8 +50,8 @@ describe("catalog and cart routes", () => {
       { role: user.role, sub: String(user._id) },
       process.env.JWT_SECRET,
       {
-        issuer: "food-marketplace-api",
-        audience: "food-marketplace"
+        issuer: "carted-api",
+        audience: "carted"
       }
     );
   }
@@ -74,31 +74,35 @@ describe("catalog and cart routes", () => {
       .post("/api/products")
       .set("Authorization", token)
       .send({
-        name: "Veggie Burger",
-        category: "Meals",
+        name: "Refurbished Phone",
+        category: "Phones and Tablets",
+        condition: "New",
+        location: { state: "Lagos", city: "Ikeja" },
         description: "Healthy and filling",
         priceCents: 1299,
         stock: 8,
-        imageUrl: "https://example.com/burger.png"
+        imageUrl: "https://example.com/phone.png"
       });
 
     expect(createResponse.status).toBe(201);
-    expect(createResponse.body.product.name).toBe("Veggie Burger");
+    expect(createResponse.body.product.name).toBe("Refurbished Phone");
 
     const updateResponse = await request(app)
       .patch(`/api/products/${createResponse.body.product._id}`)
       .set("Authorization", token)
       .send({
-        name: "Veggie Burger Deluxe",
-        category: "Meals",
-        description: "Now with avocado",
+        name: "Refurbished Phone Plus",
+        category: "Phones and Tablets",
+        condition: "Like new",
+        location: { state: "Lagos", city: "Ikeja" },
+        description: "Includes a protective case",
         priceCents: 1499,
         stock: 6,
-        imageUrl: "https://example.com/burger-deluxe.png"
+        imageUrl: "https://example.com/phone-plus.png"
       });
 
     expect(updateResponse.status).toBe(200);
-    expect(updateResponse.body.product.name).toBe("Veggie Burger Deluxe");
+    expect(updateResponse.body.product.name).toBe("Refurbished Phone Plus");
 
     const listResponse = await request(app)
       .get("/api/products/mine")
@@ -114,8 +118,8 @@ describe("catalog and cart routes", () => {
     const token = `Bearer ${createToken(vendor)}`;
     const product = await Product.create({
       vendor: vendor._id,
-      name: "Uploaded dish",
-      category: "Meals",
+      name: "Uploaded phone",
+      category: "Phones and Tablets",
       priceCents: 1250,
       stock: 4
     });
@@ -125,7 +129,7 @@ describe("catalog and cart routes", () => {
       .post(`/api/products/${product.id}/image`)
       .set("Authorization", token)
       .attach("image", png, {
-        filename: "dish.png",
+        filename: "item.png",
         contentType: "image/png"
       });
 
@@ -150,7 +154,7 @@ describe("catalog and cart routes", () => {
     const product = await Product.create({
       vendor: vendor._id,
       name: "Upload checks",
-      category: "Meals",
+      category: "Electronics",
       priceCents: 1000,
       stock: 4
     });
@@ -160,7 +164,7 @@ describe("catalog and cart routes", () => {
       .post(`/api/products/${product.id}/image`)
       .set("Authorization", token)
       .attach("image", Buffer.from("not an image"), {
-        filename: "dish.gif",
+        filename: "item.gif",
         contentType: "image/gif"
       });
     expect(badType.status).toBe(400);
@@ -181,8 +185,8 @@ describe("catalog and cart routes", () => {
     const otherVendor = await createUser({ role: "vendor" });
     const product = await Product.create({
       vendor: owner._id,
-      name: "Private dish",
-      category: "Meals",
+      name: "Private item",
+      category: "Electronics",
       priceCents: 1000,
       stock: 4
     });
@@ -190,7 +194,7 @@ describe("catalog and cart routes", () => {
       .post(`/api/products/${product.id}/image`)
       .set("Authorization", `Bearer ${createToken(otherVendor)}`)
       .attach("image", pngFixture(), {
-        filename: "dish.png",
+        filename: "item.png",
         contentType: "image/png"
       });
     expect(response.status).toBe(404);
@@ -219,7 +223,7 @@ describe("catalog and cart routes", () => {
       {
         vendor: vendor._id,
         name: "Veggie Wrap",
-        category: "Lunch",
+        category: "Phones and Tablets",
         description: "Crisp veggies",
         priceCents: 850,
         stock: 10,
@@ -228,7 +232,7 @@ describe("catalog and cart routes", () => {
       {
         vendor: vendor._id,
         name: "Chicken Bowl",
-        category: "Meals",
+        category: "Electronics",
         description: "High protein",
         priceCents: 1450,
         stock: 7,
@@ -254,12 +258,12 @@ describe("catalog and cart routes", () => {
 
     const product = await Product.create({
       vendor: vendor._id,
-      name: "Sushi Box",
-      category: "Dinner",
-      description: "Fresh and light",
+      name: "Wireless Headphones",
+      category: "Electronics",
+      description: "Lightweight with clear sound",
       priceCents: 2000,
       stock: 12,
-      imageUrl: "https://example.com/sushi.png"
+      imageUrl: "https://example.com/headphones.png"
     });
 
     const addResponse = await request(app)

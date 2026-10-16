@@ -1,32 +1,25 @@
-# PRD traceability
+# Carted marketplace traceability
 
-This matrix maps the requested MVP behavior to implementation and verification.
-“Partial” means the project provides a demo or code-level guarantee, but does
-not claim a production SLA or external production certification.
+This matrix describes the current marketplace implementation and its checks.
+“Partial” identifies demo-only or operational limits rather than a production
+guarantee.
 
-| Requirement / objective | Implementation and endpoint | Verification | Status / caveat |
-| --- | --- | --- | --- |
-| Buyer, vendor, courier, and admin authentication | `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`; `server/src/routes/auth.js`, `server/src/middleware/auth.js` | `server/src/routes/auth.test.js`, `server/src/routes/catalog.test.js` | Implemented; admin registration requires `ADMIN_REGISTRATION_KEY`. |
-| bcrypt password hashing | `server/src/routes/auth.js` hashes credentials and compares on login | `server/src/routes/auth.test.js` | Implemented with bcryptjs. |
-| JWT and RBAC on protected operations | `server/src/middleware/auth.js`; role-specific routes under `/api` | Auth, catalog, checkout, and lifecycle tests in `server/src/routes/*.test.js` | Implemented; authorization is enforced in route middleware and ownership checks. |
-| Validation, sanitization, rate limits, Helmet, CORS | Express Validator rules; auth and checkout limiters; `server/src/app.js` | Auth/catalog/checkout integration tests | Implemented; CORS origins are configured by `CLIENT_ORIGIN`. In-memory rate-limit state is not shared across API replicas. |
-| Vendor product CRUD and inventory | `/api/products`, `/api/products/mine`, `/api/products/:productId`, `/api/products/:productId/image` | `server/src/routes/catalog.test.js` | Implemented; image upload is size/type/signature checked. |
-| Buyer product search and pagination | `GET /api/products?q=&category=&page=&limit=` | Catalog integration tests | Implemented; product catalog has query indexes. |
-| Cart add, update, remove | `/api/cart`, `/api/cart/items`, `/api/cart/items/:productId` | `server/src/routes/catalog.test.js` | Implemented. |
-| Three-click cart-to-payment checkout | Cart → Checkout → Simulate Pay → confirmation page | `server/src/routes/checkout.test.js`; browser flow documented in `README.md` | UI flow is at most three deliberate clicks for the mock provider. Payment completion depends on provider response/webhook for Flutterwave. |
-| Checkout target under 3 seconds | `POST /api/checkout`; `server/src/services/checkout.js`; isolated `server/loadtest/run.js` | Load-test checkout and cart-to-confirmation average/P95 | Target is measured, not guaranteed. Results depend on local hardware and an in-memory single-node replica set; not representative of hosted production. |
-| Atomic stock reservation and no last-item oversell | Conditional stock updates within MongoDB session transactions in `server/src/services/checkout.js` | Parallel last-item checkout case in `server/src/routes/checkout.test.js` | Implemented and tested using a replica set. MongoDB Atlas/local deployment must support transactions. |
-| Idempotent checkout and payment events | Checkout idempotency key; persisted webhook event and terminal payment checks | Checkout idempotency and duplicate webhook tests in `server/src/routes/checkout.test.js` | Implemented. |
-| Mock and Flutterwave TEST payment abstraction; no raw card storage | `server/src/services/payments/`; `/api/payments/:paymentId/simulate`, `/api/payments/webhook` | Payment cases in `server/src/routes/checkout.test.js` | Implemented. Flutterwave is test-mode only; payment collection is hosted by the provider. |
-| Balanced double-entry ledger and integrity check | `GET /api/ledger/integrity`; ledger writes in `server/src/services/checkout.js` | Ledger balance and refund reversal tests in `server/src/routes/checkout.test.js` | Implemented and checked per currency. This is an internal ledger, not an external accounting certification. |
-| Order lifecycle and role-safe state changes | `/api/orders/:orderId/status`, `/api/courier/available`, `/api/courier/:orderId/accept`, `/api/courier/:orderId/delivered` | Lifecycle and courier-race tests in `server/src/routes/checkout.test.js` | Implemented; status history is stored on orders. |
-| Live order updates to involved parties | Socket.IO JWT authentication, user/order rooms; `server/src/services/realtime.js` | Socket.IO integration test in `server/src/routes/checkout.test.js` | Implemented for a connected single API instance; use a Socket.IO adapter for multi-instance deployments. |
-| PDF receipts on paid orders | `GET /api/orders/:orderId/receipt`; `server/src/services/receipts.js` | Receipt access test in `server/src/routes/checkout.test.js` | Implemented and generated once for reuse. |
-| Admin dashboard and paginated order/user views | `/api/admin/dashboard`, `/api/admin/orders`, `/api/admin/users` | Admin dashboard and access tests in `server/src/routes/checkout.test.js` | Implemented. |
-| Ledger audit view and disputes/refunds | `/api/ledger/entries`, `/api/disputes`, `/api/disputes/:disputeId` | Refund reversal, duplicate refund, and role tests in `server/src/routes/checkout.test.js` | Implemented; refund processing is transactional and idempotent. |
-| Responsive role-specific browser application | `client/src/` React/Vite, Router, Axios, Tailwind, Recharts | `npm run lint --prefix client`, `npm run build --prefix client`; manual browser walkthrough | Implemented; automated browser end-to-end tests are not included. |
-| Frequent-query indexes and paginated list APIs | Index definitions in Product, Order, OrderItem, LedgerEntry, and related schemas; list endpoints accept page/limit | Catalog/order/admin route tests; database index definitions | Implemented for query patterns identified in this project. |
-| Scalability target: tolerate 50% more load without degradation | `server/loadtest/run.js` compares baseline to 150% concurrent login/cart/checkout and catalog workload | `npm run loadtest --prefix server` | Partial: benchmark is included and reports p95 delta/errors. A local single-process demo does not prove horizontal scaling or production capacity. |
-| TLS readiness | `server/src/index.js` serves HTTP behind deployment infrastructure | Deployment configuration and this documentation | Partial: terminate TLS at a trusted reverse proxy/load balancer; Node does not configure certificates itself. |
-| No committed secrets or raw card data | `.gitignore`, environment configuration, hosted provider checkout | `git ls-files` secret/artifact hygiene check; code review | No actual `.env` or upload files should be tracked; verify against the current checkout before release. |
-| Demo seed data and repeatable local setup | `server/src/scripts/seed.js`; admin-only `POST /api/admin/demo-seed`; root `seed` script | Seed script refuses production unless `DEMO_MODE=true`; tests and deployment instructions | Implemented; production demo seed is intentionally gated by the explicit demo flag and resets shared demo passwords. |
+| Requirement | Implementation | Verification / caveat |
+| --- | --- | --- |
+| Carted branding, transparent light/dark logo variants, glass UI, public landing page, and metadata | `client/public/logo-light.png`, `logo-dark.png`, `client/src/pages/LandingPage.jsx`, Tailwind glass tokens | `client/scripts/generate-logo-variants.mjs`; Vite build |
+| Public featured listings with private seller data omitted | `GET /api/public/featured` | `server/src/routes/public.test.js`; rate limited and capped at eight |
+| Public browse, filters, detail pages, and seller profiles | `GET /api/public/listings`, `/api/public/listings/:listingId`, `/api/public/sellers/:sellerId` | Public route tests verify search filters and no seller email exposure |
+| Buyer, seller, courier, and admin authentication | `/api/auth/register`, `/api/auth/login`, `/api/auth/me`; role remains `vendor` internally | Auth, catalog, checkout integration tests; admin registration requires `ADMIN_REGISTRATION_KEY` |
+| Seller listing creation, ownership, quantity, condition, location, and photos | `/api/products`, `/api/products/mine`, `/api/products/:productId`, `/api/products/:productId/images` | `server/src/routes/catalog.test.js`, `server/src/routes/public.test.js`; max five JPG/PNG/WebP images at 2 MB each |
+| Eight marketplace categories and Nigerian state/city fields | `server/src/models/Product.js`; listing editor and browse filters | Schema validation and public filter integration tests |
+| Search, category/price/condition/location filters, sorting, and pagination | Public `/api/public/listings`; seller-authenticated `/api/products` | Public listing route tests |
+| Cart quantity limits and atomic reservation | `/api/cart`; transactional `server/src/services/checkout.js` | Cart and checkout tests; cart maximum is 99 per listing |
+| Delivery and pickup order state machines | `/api/checkout`, `/api/orders/:orderId/status`, `/api/courier/*` | Checkout lifecycle tests cover role ownership, pickup readiness, buyer receipt confirmation, and courier delivery |
+| Mock and Flutterwave TEST payments | `server/src/services/payments/`; `/api/payments/*` | Integration tests; hosted payment depends on provider verification |
+| Balanced ledger, disputes, and downloadable Carted PDF receipts | `/api/ledger/*`, `/api/disputes/*`, `/api/orders/:orderId/receipt` | Checkout integration tests; receipts are stored in MongoDB |
+| Escrow holds, completion release, buyer confirmation, lazy/timer auto-release, and frozen disputes | `server/src/services/escrow.js`; `/api/orders/:orderId/confirm-received` | MongoDB transactions; Render free instances may sleep, so due releases also run lazily on order/wallet reads |
+| Integer-kobo seller wallet and simulated payouts | `/api/ledger/wallet`, `/api/ledger/wallet/payouts`, `/api/ledger/admin/payouts` | Payout ledger writes are transactional and idempotent; no real funds are transferred |
+| Verified buyer reviews, one seller reply, reports, moderation, and aggregate ratings | `/api/reviews/*`; public seller and listing endpoints | Hidden reviews stop counting; aggregates update within MongoDB transactions |
+| Demo identities and repeatable marketplace seed | `server/src/scripts/seed.js`; gated admin demo-seed endpoint | Seed creates 24 listings across three sellers and removes legacy demo accounts/data; production requires `DEMO_MODE=true` |
+| MongoDB transactions and no overselling | Checkout, escrow, refunds, reviews, payout posting, and seed financial records use MongoDB sessions | Tests use a replica set; deployment database must support transactions |
+| Deployment security and secret hygiene | `render.yaml`, `docs/DEPLOYMENT.md`, `.gitignore` | Keep `.env` files untracked; no local benchmark is a hosted capacity guarantee |

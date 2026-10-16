@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
+import { Link, Navigate, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { getErrorMessage } from "../api.js";
 import { useAuth } from "../auth.jsx";
 import BrandLogo from "../components/BrandLogo.jsx";
@@ -15,24 +15,21 @@ function roleDestination(role) {
 function AuthShell({ eyebrow, title, subtitle, children }) {
   return (
     <main className="mx-auto grid min-h-[calc(100vh-66px)] max-w-6xl items-center gap-10 px-4 py-10 md:grid-cols-2 md:px-6">
-      <section className="hidden rounded-[2rem] bg-orange-600 p-10 text-white md:block">
-        <div className="text-5xl">🥗</div>
-        <p className="mt-12 text-sm font-bold uppercase tracking-[0.22em] text-orange-100">
+      <section className="hidden rounded-[2rem] bg-ink p-10 text-white md:block">
+        <div className="w-fit rounded-xl bg-ink p-3"><BrandLogo className="h-16 w-48" tone="dark" /></div>
+        <p className="mt-12 text-sm font-bold uppercase tracking-[0.22em] text-primary">
           {eyebrow}
         </p>
         <h1 className="mt-4 text-4xl font-black leading-tight">
-          Your next favorite meal is just around the corner.
+          Find your next great deal in your community.
         </h1>
-        <p className="mt-5 max-w-md leading-7 text-orange-50">
-          Discover local kitchens and bring something delicious to your table.
+        <p className="mt-5 max-w-md leading-7 text-slate-300">
+          Buy and sell confidently with protected payments, clear records, and helpful support.
         </p>
       </section>
       <section className="mx-auto w-full max-w-md rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-100 sm:p-9">
         <div className="mb-5 flex items-center gap-3">
-          <BrandLogo className="h-12 w-12" />
-          <span className="text-xl font-black text-slate-900">
-            Dish<span className="text-orange-600">Dash</span>
-          </span>
+          <span className="rounded-lg bg-ink px-2 py-1"><BrandLogo className="h-12 w-32" tone="dark" /></span>
         </div>
         <p className="text-sm font-bold uppercase tracking-wider text-orange-600">
           {eyebrow}
@@ -75,7 +72,7 @@ export function LoginPage() {
   return (
     <AuthShell
       eyebrow="Welcome back"
-      subtitle="Log in to order from local favorites or manage your kitchen."
+      subtitle="Log in to shop local listings or manage your seller account."
       title="Sign in"
     >
       <form className="mt-7 space-y-4" onSubmit={handleSubmit}>
@@ -111,7 +108,7 @@ export function LoginPage() {
         </button>
       </form>
       <p className="mt-6 text-center text-sm text-slate-500">
-        New to DishDash?{" "}
+        New to Carted?{" "}
         <Link
           className="font-bold text-orange-700 hover:underline"
           to="/register"
@@ -126,10 +123,11 @@ export function LoginPage() {
 export function RegisterPage() {
   const { user, register } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState("buyer");
+  const [role, setRole] = useState(searchParams.get("role") === "vendor" ? "vendor" : "buyer");
   const [adminRegistrationKey, setAdminRegistrationKey] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -164,7 +162,7 @@ export function RegisterPage() {
   return (
     <AuthShell
       eyebrow="Join the neighborhood"
-      subtitle="Join as a buyer, vendor, courier, or authorized administrator."
+      subtitle="Join as a buyer, seller, courier, or authorized administrator."
       title="Create account"
     >
       <form className="mt-7 space-y-4" onSubmit={handleSubmit}>
@@ -177,7 +175,7 @@ export function RegisterPage() {
             value={role}
           >
             <option value="buyer">Order as a buyer</option>
-            <option value="vendor">Sell as a vendor</option>
+            <option value="vendor">Sell as a seller</option>
             <option value="courier">Deliver as a courier</option>
             <option value="admin">Register as an administrator</option>
           </select>

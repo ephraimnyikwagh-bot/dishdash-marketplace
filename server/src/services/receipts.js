@@ -7,7 +7,7 @@ import OrderItem from "../models/OrderItem.js";
 import Receipt from "../models/Receipt.js";
 
 const logoPath = fileURLToPath(
-  new URL("../../../client/public/logo.png", import.meta.url)
+  new URL("../../../client/public/logo-dark.png", import.meta.url)
 );
 
 function formatNaira(amountCents) {
@@ -29,22 +29,19 @@ async function renderReceipt(order, items) {
     doc.on("error", reject);
   });
 
+  doc.rect(50, 34, 495, 78).fill("#0A0A0A");
   if (existsSync(logoPath)) {
-    doc.image(logoPath, 50, 42, { fit: [72, 56] });
+    doc.image(logoPath, 58, 42, { fit: [145, 58] });
   } else {
-    doc.roundedRect(50, 42, 72, 56, 10).fill("#ea580c");
-    doc.fillColor("#ffffff").fontSize(16).text("DD", 50, 61, {
-      width: 72,
-      align: "center"
-    });
+    doc.fillColor("#00F5C4").fontSize(18).text("Carted", 65, 62);
   }
   doc
     .fontSize(22)
-    .fillColor("#c2410c")
-    .text("DishDash", 140, 48, { continued: true })
+    .fillColor("#00F5C4")
+    .text("Carted", 225, 51, { continued: true })
     .fontSize(10)
-    .fillColor("#475569")
-    .text("  FOOD MARKETPLACE");
+    .fillColor("#ffffff")
+    .text("  MARKETPLACE");
   doc.moveDown(2);
   doc.fontSize(18).fillColor("#0f172a").text("Payment receipt");
   doc.moveDown(0.6);
@@ -59,7 +56,7 @@ async function renderReceipt(order, items) {
   doc.text(order.buyer?.name || "Buyer");
   doc.text(order.buyer?.email || "");
   doc.moveDown(0.5);
-  doc.fontSize(12).fillColor("#0f172a").text("Vendor");
+  doc.fontSize(12).fillColor("#0f172a").text("Seller");
   doc.fontSize(10).fillColor("#334155");
   doc.text(order.vendor?.name || "Vendor");
   doc.text(order.vendor?.email || "");
@@ -136,7 +133,7 @@ export async function ensureReceipt(orderId) {
     .populate("payment", "providerReference status");
   if (
     !order ||
-    !["Paid", "Shipped", "Delivered", "Refunded"].includes(order.status)
+    !["Paid", "Shipped", "Ready for pickup", "Delivered", "Refunded"].includes(order.status)
   ) {
     throw new Error("A receipt can only be generated for a paid order");
   }

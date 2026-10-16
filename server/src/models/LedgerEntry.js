@@ -6,12 +6,24 @@ const ledgerEntrySchema = new mongoose.Schema(
     order: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Order",
-      required: true,
+      default: null,
+      index: true
+    },
+    owner: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
       index: true
     },
     account: {
       type: String,
-      enum: ["buyer_clearing", "vendor_payable", "platform_revenue"],
+      enum: [
+        "buyer_payment",
+        "escrow",
+        "seller_payable",
+        "platform_fee_revenue",
+        "seller_payout"
+      ],
       required: true
     },
     direction: { type: String, enum: ["debit", "credit"], required: true },

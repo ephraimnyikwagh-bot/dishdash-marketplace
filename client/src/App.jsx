@@ -14,8 +14,12 @@ import { CartProvider, useCart } from "./cart.jsx";
 import BrandLogo from "./components/BrandLogo.jsx";
 import { LoginPage, RegisterPage } from "./pages/AuthPages.jsx";
 import CatalogPage from "./pages/CatalogPage.jsx";
+import LandingPage from "./pages/LandingPage.jsx";
+import ListingDetailPage from "./pages/ListingDetailPage.jsx";
+import SellerProfilePage from "./pages/SellerProfilePage.jsx";
 import CartPage from "./pages/CartPage.jsx";
 import VendorDashboardPage from "./pages/VendorDashboardPage.jsx";
+import WalletPage from "./pages/WalletPage.jsx";
 import PaymentPage, { PaymentReturnPage } from "./pages/PaymentPage.jsx";
 import OrdersPage from "./pages/OrdersPage.jsx";
 import OrderDetailPage from "./pages/OrderDetailPage.jsx";
@@ -23,6 +27,8 @@ import CourierDashboardPage from "./pages/CourierDashboardPage.jsx";
 import { RealtimeProvider, useRealtime } from "./realtime.jsx";
 const AdminDashboardPage = lazy(() => import("./pages/AdminDashboardPage.jsx"));
 const AdminLedgerPage = lazy(() => import("./pages/AdminLedgerPage.jsx"));
+const AdminPayoutsPage = lazy(() => import("./pages/AdminPayoutsPage.jsx"));
+const AdminReviewsPage = lazy(() => import("./pages/AdminReviewsPage.jsx"));
 const AdminDisputesPage = lazy(() => import("./pages/AdminDisputesPage.jsx"));
 const AdminUsersPage = lazy(() => import("./pages/AdminUsersPage.jsx"));
 
@@ -39,6 +45,7 @@ function Spinner({ label = "Loading..." }) {
 }
 
 function RoleHome({ role }) {
+  if (!role) return <LandingPage />;
   if (role === "vendor") return <Navigate to="/vendor" replace />;
   if (role === "buyer") return <Navigate to="/catalog" replace />;
   if (role === "courier") return <Navigate to="/courier" replace />;
@@ -72,10 +79,10 @@ function Navbar() {
   }
 
   return (
-    <header className="sticky top-0 z-20 border-b border-orange-100 bg-white/95 backdrop-blur">
+    <header className="glass sticky top-0 z-20 !rounded-none border-x-0 border-t-0">
       <div className="relative mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
         <Link
-          aria-label="DishDash home"
+          aria-label="Carted home"
           className="flex shrink-0 items-center gap-2"
           to={
             user
@@ -86,13 +93,10 @@ function Navbar() {
                   : user.role === "admin"
                     ? "/admin"
                     : "/catalog"
-              : "/login"
+              : "/"
           }
         >
-          <BrandLogo />
-          <span className="text-xl font-black tracking-tight text-slate-900">
-            Dish<span className="text-orange-600">Dash</span>
-          </span>
+          <BrandLogo className="h-9 w-auto sm:h-11" />
         </Link>
         <button
           aria-expanded={mobileMenuOpen}
@@ -118,7 +122,7 @@ function Navbar() {
           {user?.role === "buyer" && (
             <>
               <Link className="nav-link" to="/catalog">
-                Menu
+                Browse
               </Link>
               <Link className="nav-link" to="/orders">
                 Orders
@@ -153,7 +157,10 @@ function Navbar() {
           {user?.role === "vendor" && (
             <>
               <Link className="nav-link" to="/vendor">
-                My kitchen
+                My listings
+              </Link>
+              <Link className="nav-link" to="/wallet">
+                Wallet
               </Link>
               <Link className="nav-link" to="/orders">
                 Incoming orders
@@ -171,6 +178,8 @@ function Navbar() {
               <Link className="nav-link" to="/admin/orders">Orders</Link>
               <Link className="nav-link" to="/admin/users">Users</Link>
               <Link className="nav-link" to="/admin/ledger">Ledger</Link>
+              <Link className="nav-link" to="/admin/payouts">Payouts</Link>
+              <Link className="nav-link" to="/admin/reviews">Reviews</Link>
               <Link className="nav-link" to="/admin/disputes">Disputes</Link>
             </>
           )}
@@ -185,6 +194,12 @@ function Navbar() {
                 }}
                 type="button"
               >
+                {!user && (
+                  <>
+                    <Link className="nav-link" to="/login">Log in</Link>
+                    <Link className="button-primary !px-4 !py-2" to="/register">Sign up</Link>
+                  </>
+                )}
                 <svg
                   aria-hidden="true"
                   className="h-6 w-6"
@@ -213,7 +228,7 @@ function Navbar() {
                 )}
               </button>
               {notificationsOpen && (
-                <div className="absolute right-0 top-12 z-30 w-72 rounded-2xl border border-slate-100 bg-white p-3 shadow-xl">
+                <div className="glass-strong absolute right-0 top-12 z-30 w-72 p-3 text-slate-900">
                   <div className="flex items-center justify-between px-2 py-1">
                     <p className="font-bold">Recent updates</p>
                     <button
@@ -286,10 +301,13 @@ function AppFrame() {
   }, [refreshCart, user]);
 
   return (
-    <div className="min-h-screen bg-[#fffaf5] text-slate-900">
+    <div className="min-h-screen bg-white text-slate-900">
       <Navbar />
       <Routes>
         <Route path="/" element={<RoleHome role={user?.role} />} />
+        <Route path="/browse" element={<CatalogPage />} />
+        <Route path="/listings/:listingId" element={<ListingDetailPage />} />
+        <Route path="/sellers/:sellerId" element={<SellerProfilePage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
         <Route element={<Guard roles={["buyer"]} />}>
@@ -300,6 +318,7 @@ function AppFrame() {
         </Route>
         <Route element={<Guard roles={["vendor"]} />}>
           <Route path="/vendor" element={<VendorDashboardPage />} />
+          <Route path="/wallet" element={<WalletPage />} />
         </Route>
         <Route element={<Guard roles={["buyer", "vendor", "admin"]} />}>
           <Route path="/orders" element={<OrdersPage />} />
@@ -314,6 +333,8 @@ function AppFrame() {
           <Route path="/admin/orders" element={<Suspense fallback={<Spinner label="Loading orders..." />}><AdminDashboardPage ordersOnly /></Suspense>} />
           <Route path="/admin/users" element={<Suspense fallback={<Spinner label="Loading users..." />}><AdminUsersPage /></Suspense>} />
           <Route path="/admin/ledger" element={<Suspense fallback={<Spinner label="Loading ledger..." />}><AdminLedgerPage /></Suspense>} />
+          <Route path="/admin/payouts" element={<Suspense fallback={<Spinner label="Loading payouts..." />}><AdminPayoutsPage /></Suspense>} />
+          <Route path="/admin/reviews" element={<Suspense fallback={<Spinner label="Loading reviews..." />}><AdminReviewsPage /></Suspense>} />
           <Route path="/admin/disputes" element={<Suspense fallback={<Spinner label="Loading disputes..." />}><AdminDisputesPage /></Suspense>} />
         </Route>
         <Route path="*" element={<RoleHome role={user?.role} />} />

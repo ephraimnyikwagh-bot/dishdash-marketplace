@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 480" role="img" aria-label="Carted listing image placeholder">
+  <rect width="640" height="480" fill="#e6fffa"/>
+  <rect x="210" y="112" width="220" height="202" rx="24" fill="#00f5c4"/>
+  <path d="M258 255l42-48 34 34 26-29 34 43H258Z" fill="#0a0a0a"/>
+  <circle cx="286" cy="174" r="14" fill="#007f69"/>
+  <path d="M165 350h310" stroke="#00a88c" stroke-linecap="round" stroke-width="10"/>
+  <text x="320" y="405" fill="#0a0a0a" font-family="Poppins,sans-serif" font-size="24" font-weight="700" text-anchor="middle">A great find is waiting</text>
+</svg>

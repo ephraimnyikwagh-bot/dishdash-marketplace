@@ -7,14 +7,14 @@ import Product from "../src/models/Product.js";
 import User from "../src/models/User.js";
 
 process.env.NODE_ENV = "test";
-process.env.JWT_SECRET = "dishdash-loadtest-secret-with-at-least-32-characters";
+process.env.JWT_SECRET = "carted-loadtest-secret-with-at-least-32-characters";
 process.env.PAYMENT_PROVIDER = "mock";
 process.env.PLATFORM_FEE_BPS = "1000";
 
 const { default: app } = await import("../src/app.js");
 const baselineUsers = Number(process.env.LOAD_BASELINE_USERS || 8);
 const catalogDurationSeconds = Number(process.env.LOAD_CATALOG_SECONDS || 5);
-const userPassword = "DishDashLoadTestOnly2026!";
+const userPassword = "CartedLoadTestOnly2026!";
 const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 let replicaSet;
 let server;
@@ -184,7 +184,7 @@ async function main() {
   replicaSet = await MongoMemoryReplSet.create({
     replSet: { count: 1, storageEngine: "wiredTiger" }
   });
-  await mongoose.connect(replicaSet.getUri("dishdash_loadtest"));
+  await mongoose.connect(replicaSet.getUri("carted_loadtest"));
   server = createServer(app);
   await new Promise((resolve, reject) => {
     server.once("error", reject);
@@ -201,9 +201,9 @@ async function main() {
   });
   const product = await Product.create({
     vendor: vendor._id,
-    name: "Load test meal",
+    name: "Load test listing",
     description: "Temporary item used only in the isolated load-test database.",
-    category: "Load test",
+    category: "Electronics",
     priceCents: 250000,
     stock: 100000,
     imageUrl: "",

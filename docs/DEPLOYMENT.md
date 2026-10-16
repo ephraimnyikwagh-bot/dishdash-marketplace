@@ -1,7 +1,7 @@
-# DishDash free-tier deployment
+# Carted free-tier deployment
 
 This guide deploys the React SPA to Vercel Hobby, the Express API to a Render
-free web service, MongoDB to Atlas, and product images to Cloudinary. Keep
+free web service, MongoDB to Atlas, and listing images to Cloudinary. Keep
 `DEMO_MODE=false` by default; enable it only for a public demo instance using
 test data and the mock payment provider.
 
@@ -20,7 +20,7 @@ test data and the mock payment provider.
    if you move to a plan/service that provides stable egress IPs.
 5. In **Database → Connect → Drivers**, copy the `mongodb+srv://` URI. Replace
    `<password>` with the database user's URL-encoded password and set the
-   database name, e.g. `dishdash`. Atlas replica-set clusters support the
+   database name, e.g. `carted`. Atlas replica-set clusters support the
    multi-document transactions used by checkout and refunds.
 
 ## 2. Cloudinary
@@ -48,7 +48,7 @@ test data and the mock payment provider.
    | Variable | Value |
    | --- | --- |
    | `MONGODB_URI` | Atlas connection URI for the app database |
-   | `CLIENT_ORIGIN` | Exact Vercel production origin, e.g. `https://dishdash-demo.vercel.app` (comma-separate additional permitted origins) |
+   | `CLIENT_ORIGIN` | Exact Vercel production origin, e.g. `https://carted-demo.vercel.app` (comma-separate additional permitted origins) |
    | `ADMIN_REGISTRATION_KEY` | Long random value; needed only when registering an admin |
    | `CLOUDINARY_CLOUD_NAME` | Cloudinary dashboard cloud name |
    | `CLOUDINARY_API_KEY` | Cloudinary dashboard API key |
@@ -102,7 +102,7 @@ test data and the mock payment provider.
 
 ## Receipts and Render's ephemeral filesystem
 
-DishDash stores generated receipt PDF bytes in the Atlas `Receipt` document,
+Carted stores generated receipt PDF bytes in the Atlas `Receipt` document,
 not as files on Render's local disk. Therefore a Render restart does not remove
 an already generated receipt. The authorized receipt endpoint also regenerates
 the PDF on demand if the stored document exists but its PDF bytes are missing
@@ -141,11 +141,11 @@ configured with demo controls disabled by default.
    ```
 
 3. Confirm the response says `Demo data seeded successfully`. The seed
-   command upserts four demo users and ten dishes; rerunning it is safe, though
-   it resets those demo accounts to the documented shared demo password.
-4. Log in at the Vercel site using `buyer@dishdash.demo`,
-   `vendor@dishdash.demo`, `courier@dishdash.demo`, or `admin@dishdash.demo`.
-   The shared password is `DishDashDemo2026!`. These credentials are public
+   command replaces legacy demo data, creates six demo users and 24 listings
+   across three sellers, and is repeatable.
+4. Log in at the Vercel site using `buyer@carted.demo`,
+   `vendor@carted.demo`, `courier@carted.demo`, or `admin@carted.demo`.
+   The shared password is `CartedDemo2026!`. These credentials are public
    demo credentials, not suitable for private or production data.
 
 The same protected script can be run from Render Shell with `npm run seed` if

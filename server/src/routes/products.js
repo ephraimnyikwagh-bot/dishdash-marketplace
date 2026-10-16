@@ -2,7 +2,7 @@ import { Router } from "express";
 import { body, query, validationResult } from "express-validator";
 import multer from "multer";
 import mongoose from "mongoose";
-import Product from "../models/Product.js";
+import Product, { listingCategories, listingConditions, nigerianStates } from "../models/Product.js";
 import { allowRoles, requireAuth } from "../middleware/auth.js";
 import { storeProductImage, validateImageBuffer } from "../services/imageStorage.js";
 
@@ -10,7 +10,7 @@ const router = Router();
 const maxImageBytes = 2 * 1024 * 1024;
 const uploadImage = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: maxImageBytes, files: 1 },
+  limits: { fileSize: maxImageBytes, files: 5 },
   fileFilter(_request, file, callback) {
     if (!["image/jpeg", "image/png", "image/webp"].includes(file.mimetype)) {
       callback(Object.assign(new Error("Image must be a JPG, PNG, or WebP file"), {
@@ -41,16 +41,18 @@ function handleImageUpload(request, response, next) {
 }
 
 const productValidation = [
-  body("name")
-    .isString()
-    .trim()
-    .isLength({ min: 1, max: 160 })
-    .withMessage("Name must be between 1 and 160 characters"),
+  body().custom((value) => value.priceCents != null || value.price != null)
+    .withMessage("A price is required"),
+  body().custom((value) => value.quantity != null || value.stock != null)
+    .withMessage("A quantity is required"),
+  body().custom((value) => {
+    const title = value.title ?? value.name;
+    return typeof title === "string" && title.trim().length > 0 && title.trim().length <= 160;
+  }).withMessage("Title must be between 1 and 160 characters"),
   body("category")
     .isString()
-    .trim()
-    .isLength({ min: 1, max: 80 })
-    .withMessage("Category is required"),
+    .isIn(listingCategories)
+    .withMessage("Choose a supported listing category"),
   body("description")
     .optional({ values: "falsy" })
     .isString()
@@ -62,12 +64,51 @@ const productValidation = [
     .isURL({ protocols: ["http", "https"], require_protocol: true })
     .withMessage("Image URL must be valid"),
   body("priceCents")
-    .isInt({ min: 1 })
-    .withMessage("Price must be a positive integer in cents"),
+    .optional()
+    .isInt({ min: 1, max: 10000000000 })
+    .withMessage("Price must be a positive integer in kobo"),
+  body("price")
+    .optional()
+    .isFloat({ min: 0.01, max: 100000000 })
+    .withMessage("Price must be a positive amount in naira"),
   body("stock")
-    .isInt({ min: 0 })
-    .withMessage("Stock must be a non-negative integer")
+    .optional()
+    .isInt({ min: 0, max: 999999 })
+    .withMessage("Quantity must be a whole number from 0 to 999999"),
+  body("quantity")
+    .optional()
+    .isInt({ min: 0, max: 999999 })
+    .withMessage("Quantity must be a whole number from 0 to 999999"),
+  body("condition").isIn(listingConditions),
+  body("location").isObject().withMessage("A Nigerian state and city are required"),
+  body("location.state").isIn(nigerianStates).withMessage("Choose a Nigerian state"),
+  body("location.city").isString().trim().isLength({ min: 1, max: 100 }),
+  body("images").optional().isArray({ max: 5 }).withMessage("A listing can have up to 5 images"),
+  body("images.*")
+    .optional()
+    .isURL({ protocols: ["http", "https"], require_protocol: true })
+    .withMessage("Image URLs must be valid")
 ];
+
+function productData(body) {
+  const data = {
+    name: body.title ?? body.name,
+    title: body.title ?? body.name,
+    description: body.description || "",
+    priceCents: body.priceCents ?? Math.round(Number(body.price) * 100),
+    stock: body.quantity ?? body.stock,
+    quantity: body.quantity ?? body.stock,
+    category: body.category,
+    condition: body.condition || "Used",
+    location: {
+      state: body.location?.state || "Lagos",
+      city: body.location?.city || "Lagos"
+    }
+  };
+  if (body.imageUrl !== undefined) data.imageUrl = body.imageUrl;
+  if (Array.isArray(body.images)) data.images = body.images;
+  return data;
+}
 
 function sendValidationErrors(request, response) {
   const errors = validationResult(request);
@@ -101,9 +142,13 @@ router.get(
     query("category")
       .optional()
       .isString()
-      .trim()
-      .isLength({ max: 80 })
-      .withMessage("Category filter is too long")
+      .isIn(listingCategories),
+    query("condition").optional().isIn(listingConditions),
+    query("state").optional().isIn(nigerianStates),
+    query("city").optional().isString().trim().isLength({ max: 100 }),
+    query("minPrice").optional().isFloat({ min: 0 }),
+    query("maxPrice").optional().isFloat({ min: 0 }),
+    query("sort").optional().isIn(["newest", "price_asc", "price_desc"])
   ],
   async (request, response, next) => {
     if (sendValidationErrors(request, response)) return;
@@ -116,17 +161,32 @@ router.get(
       const filters = { isActive: true };
 
       if (search) {
-        filters.name = { $regex: escapeForRegex(search), $options: "i" };
+        filters.$or = ["name", "description"].map((field) => ({
+          [field]: { $regex: escapeForRegex(search), $options: "i" }
+        }));
       }
 
       if (category) {
-        filters.category = { $regex: `^${escapeForRegex(category)}$`, $options: "i" };
+        filters.category = category;
       }
+      if (request.query.condition) filters.condition = request.query.condition;
+      if (request.query.state) filters["location.state"] = request.query.state;
+      if (request.query.city) filters["location.city"] = new RegExp(`^${escapeForRegex(String(request.query.city))}$`, "i");
+      if (request.query.minPrice != null || request.query.maxPrice != null) {
+        filters.priceCents = {};
+        if (request.query.minPrice != null) filters.priceCents.$gte = Math.round(Number(request.query.minPrice) * 100);
+        if (request.query.maxPrice != null) filters.priceCents.$lte = Math.round(Number(request.query.maxPrice) * 100);
+      }
+      const sort = request.query.sort === "price_asc"
+        ? { priceCents: 1, _id: 1 }
+        : request.query.sort === "price_desc"
+          ? { priceCents: -1, _id: -1 }
+          : { createdAt: -1, _id: -1 };
 
       const [items, total] = await Promise.all([
         Product.find(filters)
           .populate("vendor", "name email role")
-          .sort({ createdAt: -1 })
+          .sort(sort)
           .skip((page - 1) * limit)
           .limit(limit)
           .lean(),
@@ -179,6 +239,7 @@ router.post(
         mimetype: request.file.mimetype,
         productId: product.id
       });
+      product.images = [product.imageUrl];
       await product.save();
       response.json({ product });
     } catch (error) {
@@ -255,13 +316,8 @@ router.post(
 
     try {
       const product = await Product.create({
-        vendor: request.auth.id,
-        name: request.body.name,
-        description: request.body.description || "",
-        priceCents: request.body.priceCents,
-        stock: request.body.stock,
-        imageUrl: request.body.imageUrl || "",
-        category: request.body.category
+        ...productData(request.body),
+        vendor: request.auth.id
       });
 
       response.status(201).json({ product });
@@ -283,14 +339,7 @@ router.patch(
       const product = await Product.findOneAndUpdate(
         { _id: request.params.productId, vendor: request.auth.id, isActive: true },
         {
-          $set: {
-            name: request.body.name,
-            description: request.body.description || "",
-            priceCents: request.body.priceCents,
-            stock: request.body.stock,
-            imageUrl: request.body.imageUrl || "",
-            category: request.body.category
-          }
+          $set: productData(request.body)
         },
         { new: true }
       );
@@ -325,6 +374,70 @@ router.delete(
       }
 
       response.json({ message: "Product removed", product });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+router.post(
+  "/:productId/images",
+  requireAuth,
+  allowRoles("vendor"),
+  (request, response, next) => {
+    uploadImage.array("images", 5)(request, response, (error) => {
+      if (!error) return next();
+      if (error instanceof multer.MulterError && error.code === "LIMIT_FILE_SIZE") {
+        response.status(413).json({ message: "Each image must be no larger than 2 MB" });
+        return;
+      }
+      if (error instanceof multer.MulterError && error.code === "LIMIT_FILE_COUNT") {
+        response.status(400).json({ message: "A listing can have at most 5 images" });
+        return;
+      }
+      if (error.statusCode === 400) {
+        response.status(400).json({ message: error.message });
+        return;
+      }
+      next(error);
+    });
+  },
+  async (request, response, next) => {
+    if (!mongoose.isValidObjectId(request.params.productId)) {
+      response.status(400).json({ message: "Invalid listing ID" });
+      return;
+    }
+    if (!request.files?.length || request.files.length > 5) {
+      response.status(400).json({ message: "Choose between 1 and 5 images" });
+      return;
+    }
+    try {
+      const product = await Product.findOne({
+        _id: request.params.productId,
+        vendor: request.auth.id,
+        isActive: true
+      });
+      if (!product) {
+        response.status(404).json({ message: "Listing not found" });
+        return;
+      }
+      const images = [];
+      for (const [index, file] of request.files.entries()) {
+        if (!validateImageBuffer(file.buffer, file.mimetype)) {
+          response.status(400).json({ message: "Image contents must be valid JPG, PNG, or WebP files" });
+          return;
+        }
+        images.push(await storeProductImage({
+          buffer: file.buffer,
+          mimetype: file.mimetype,
+          productId: product.id,
+          key: `listing-${product.id}-${Date.now()}-${index}`
+        }));
+      }
+      product.images = images;
+      product.imageUrl = images[0] || "";
+      await product.save();
+      response.json({ product });
     } catch (error) {
       next(error);
     }

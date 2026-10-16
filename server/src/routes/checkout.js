@@ -23,6 +23,11 @@ export function createCheckoutRouter({
     allowRoles("buyer"),
     checkoutLimiter,
     async (request, response, next) => {
+      const deliveryMethod = request.body?.deliveryMethod || "delivery";
+      if (!["delivery", "pickup"].includes(deliveryMethod)) {
+        response.status(400).json({ message: "Choose delivery or pickup" });
+        return;
+      }
       const clientKey = request.get("Idempotency-Key");
       if (!clientKey || !/^[A-Za-z0-9._:-]{8,128}$/.test(clientKey)) {
         response.status(400).json({
@@ -35,6 +40,7 @@ export function createCheckoutRouter({
         const result = await createCheckout({
           buyerId: request.auth.id,
           clientIdempotencyKey: clientKey,
+          deliveryMethod,
           provider: providerFactory()
         });
         response.status(result.reused ? 200 : 201).json({

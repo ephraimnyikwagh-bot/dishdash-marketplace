@@ -42,9 +42,13 @@ function checkoutResponse(order, payment, reused) {
 export async function createCheckout({
   buyerId,
   clientIdempotencyKey,
+  deliveryMethod = "delivery",
   provider = createPaymentProvider(),
   connection = mongoose.connection
 }) {
+  if (!["delivery", "pickup"].includes(deliveryMethod)) {
+    throw new CheckoutError(400, "Choose delivery or pickup");
+  }
   const idempotencyKey = checkoutKey(buyerId, clientIdempotencyKey);
   const existing = await Order.findOne({ idempotencyKey }).populate("payment");
   if (existing) return checkoutResponse(existing, existing.payment, true);
@@ -80,7 +84,7 @@ export async function createCheckout({
   if (items.some(({ product }) => String(product.vendor) !== vendorId)) {
     throw new CheckoutError(
       400,
-      "Checkout currently supports items from one vendor at a time"
+      "Checkout currently supports listings from one seller at a time"
     );
   }
 
@@ -130,6 +134,7 @@ export async function createCheckout({
               buyer: buyerId,
               vendor: vendorId,
               status: "Pending",
+              deliveryMethod,
               statusHistory: [
                 {
                   status: "Pending",
@@ -280,6 +285,7 @@ export async function processPaymentEvent({
           }
           payment.confirmedAt = new Date();
           order.status = "Paid";
+          order.escrowStatus = "held";
           order.statusHistory.push({
             status: "Paid",
             changedByRole: "system"
@@ -288,41 +294,27 @@ export async function processPaymentEvent({
           await order.save({ session });
           updatedOrder = order.toObject();
 
-          const vendorPayableCents =
-            order.totalCents - order.platformFeeCents;
           const entries = [
             {
               transactionId: String(payment._id),
               order: order._id,
-              account: "buyer_clearing",
+              account: "buyer_payment",
               direction: "debit",
               amountCents: order.totalCents,
               currency: order.currency,
-              idempotencyKey: `${providerName}:${reference}:buyer-debit`
+              idempotencyKey: `${order._id}:buyer-payment:debit`
+            },
+            {
+              transactionId: String(payment._id),
+              order: order._id,
+              owner: order.vendor,
+              account: "escrow",
+              direction: "credit",
+              amountCents: order.totalCents,
+              currency: order.currency,
+              idempotencyKey: `${order._id}:escrow:hold`
             }
           ];
-          if (vendorPayableCents > 0) {
-            entries.push({
-              transactionId: String(payment._id),
-              order: order._id,
-              account: "vendor_payable",
-              direction: "credit",
-              amountCents: vendorPayableCents,
-              currency: order.currency,
-              idempotencyKey: `${providerName}:${reference}:vendor-credit`
-            });
-          }
-          if (order.platformFeeCents > 0) {
-            entries.push({
-              transactionId: String(payment._id),
-              order: order._id,
-              account: "platform_revenue",
-              direction: "credit",
-              amountCents: order.platformFeeCents,
-              currency: order.currency,
-              idempotencyKey: `${providerName}:${reference}:platform-credit`
-            });
-          }
           await LedgerEntry.create(entries, { session, ordered: true });
           return;
         }

@@ -20,8 +20,8 @@ function createProtectedApp(...roles) {
 function createToken(role = "buyer") {
   return jwt.sign({ role }, secret, {
     subject: "user-123",
-    issuer: "food-marketplace-api",
-    audience: "food-marketplace"
+    issuer: "carted-api",
+    audience: "carted"
   });
 }
 

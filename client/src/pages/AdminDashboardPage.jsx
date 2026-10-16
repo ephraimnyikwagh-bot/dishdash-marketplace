@@ -18,7 +18,7 @@ import Notice from "../components/Notice.jsx";
 import { StatusBadge } from "./OrdersPage.jsx";
 import { formatPrice } from "../money.js";
 
-const colors = ["#ea580c", "#16a34a", "#2563eb", "#7c3aed", "#eab308", "#dc2626"];
+const colors = ["#007f69", "#16a34a", "#2563eb", "#7c3aed", "#eab308", "#dc2626"];
 
 function MetricCard({ title, value, detail }) {
   return (
@@ -118,7 +118,7 @@ export default function AdminDashboardPage({ ordersOnly = false }) {
                     <XAxis dataKey="date" tick={{ fontSize: 11 }} />
                     <YAxis tick={{ fontSize: 11 }} />
                     <Tooltip formatter={(value) => formatPrice(value)} />
-                    <Bar dataKey="volumeCents" fill="#ea580c" radius={[5, 5, 0, 0]} />
+                    <Bar dataKey="volumeCents" fill="#007f69" radius={[5, 5, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -173,7 +173,7 @@ export default function AdminDashboardPage({ ordersOnly = false }) {
               <tr>
                 <th className="px-5 py-3">Order</th>
                 <th className="px-5 py-3">Buyer</th>
-                <th className="px-5 py-3">Vendor</th>
+                <th className="px-5 py-3">Seller</th>
                 <th className="px-5 py-3">Total</th>
                 <th className="px-5 py-3">Status</th>
                 <th className="px-5 py-3">Created</th>

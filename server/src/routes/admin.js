@@ -17,7 +17,7 @@ const pagination = [
   query("page").optional().isInt({ min: 1 }),
   query("limit").optional().isInt({ min: 1, max: 100 }),
   query("status").optional().isIn([
-    "Pending", "Paid", "Shipped", "Delivered", "Failed", "Cancelled", "Refunded"
+    "Pending", "Paid", "Shipped", "Ready for pickup", "Delivered", "Failed", "Cancelled", "Refunded"
   ]),
   query("role").optional().isIn(["buyer", "vendor", "courier", "admin"])
 ];
@@ -70,7 +70,7 @@ router.get("/dashboard", async (_request, response, next) => {
       LedgerEntry.aggregate([
         {
           $match: {
-            account: "platform_revenue",
+            account: "platform_fee_revenue",
             createdAt: { $gte: thirtyDaysAgo }
           }
         },

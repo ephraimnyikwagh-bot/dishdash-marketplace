@@ -14,6 +14,7 @@ function StatusBadge({ status }) {
     Failed: "bg-red-100 text-red-800",
     Delivered: "bg-sky-100 text-sky-800",
     Shipped: "bg-indigo-100 text-indigo-800",
+    "Ready for pickup": "bg-teal-100 text-teal-800",
     Cancelled: "bg-slate-100 text-slate-700",
     Refunded: "bg-purple-100 text-purple-800",
     "Under review": "bg-amber-100 text-amber-800",
@@ -62,12 +63,12 @@ export default function OrdersPage() {
     if (updates.length) loadOrders();
   }, [updates, loadOrders]);
 
-  const vendor = user.role === "vendor";
+  const seller = user.role === "vendor";
 
-  async function markShipped(orderId) {
+  async function markOrderReady(orderId, status) {
     setError("");
     try {
-      await api.patch(`/orders/${orderId}/status`, { status: "Shipped" });
+      await api.patch(`/orders/${orderId}/status`, { status });
       await loadOrders();
     } catch (requestError) {
       setError(getErrorMessage(requestError, "Could not mark the order shipped."));
@@ -77,26 +78,26 @@ export default function OrdersPage() {
   return (
     <main className="mx-auto max-w-5xl px-4 pb-16 pt-8 sm:px-6">
       <p className="text-xs font-bold uppercase tracking-[0.18em] text-orange-600">
-        {vendor ? "Kitchen" : "Your account"}
+        {seller ? "Seller" : "Your account"}
       </p>
       <h1 className="mt-2 text-3xl font-black">
-        {vendor ? "Incoming orders" : "My orders"}
+        {seller ? "Incoming orders" : "My orders"}
       </h1>
       <p className="mt-2 text-sm text-slate-500">
-        {vendor ? "Paid orders containing your products." : "Your recent orders and payment status."}
+        {seller ? "Paid orders containing your listings." : "Your recent orders and payment status."}
       </p>
       <Notice className="mt-5">{error}</Notice>
       {loading ? (
         <Loading label="Loading orders..." />
       ) : orders.length === 0 ? (
         <div className="mt-6 rounded-2xl border border-dashed border-orange-200 bg-white px-6 py-14 text-center">
-          <div className="text-5xl">{vendor ? "📨" : "🧾"}</div>
+          <div className="text-5xl">{seller ? "📨" : "🧾"}</div>
           <h2 className="mt-4 font-bold">
-            {vendor ? "No incoming orders yet" : "No orders yet"}
+            {seller ? "No incoming orders yet" : "No orders yet"}
           </h2>
-          {!vendor && (
+          {!seller && (
             <Link className="button-primary mt-5 inline-flex" to="/catalog">
-              Browse the menu
+              Browse listings
             </Link>
           )}
         </div>
@@ -120,13 +121,13 @@ export default function OrdersPage() {
             </Link>
             <div className="flex items-center gap-3">
               <StatusBadge status={order.status} />
-              {vendor && order.status === "Paid" && (
+              {seller && order.status === "Paid" && (
                 <button
                   className="button-primary !px-3 !py-2"
-                  onClick={() => markShipped(order._id)}
+                  onClick={() => markOrderReady(order._id, order.deliveryMethod === "pickup" ? "Ready for pickup" : "Shipped")}
                   type="button"
                 >
-                  Mark Shipped
+                  {order.deliveryMethod === "pickup" ? "Ready for pickup" : "Mark Shipped"}
                 </button>
               )}
             </div>

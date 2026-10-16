@@ -27,8 +27,8 @@ export function initializeRealtime(httpServer, options = {}) {
 
     try {
       const payload = jwt.verify(token, secret, {
-        issuer: "food-marketplace-api",
-        audience: "food-marketplace"
+        issuer: "carted-api",
+        audience: "carted"
       });
       if (
         typeof payload === "string" ||

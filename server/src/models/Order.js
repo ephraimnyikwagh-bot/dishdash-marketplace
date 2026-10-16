@@ -8,6 +8,7 @@ const orderStatusHistorySchema = new mongoose.Schema(
         "Pending",
         "Paid",
         "Shipped",
+        "Ready for pickup",
         "Delivered",
         "Failed",
         "Cancelled",
@@ -55,6 +56,7 @@ const orderSchema = new mongoose.Schema(
         "Pending",
         "Paid",
         "Shipped",
+        "Ready for pickup",
         "Delivered",
         "Failed",
         "Cancelled",
@@ -64,6 +66,21 @@ const orderSchema = new mongoose.Schema(
       index: true
     },
     statusHistory: { type: [orderStatusHistorySchema], default: [] },
+    escrowStatus: {
+      type: String,
+      enum: ["unfunded", "held", "released", "refunded"],
+      default: "unfunded",
+      index: true
+    },
+    escrowReleaseAt: { type: Date, default: null, index: true },
+    escrowVersion: { type: Number, default: 0 },
+    buyerConfirmedAt: { type: Date, default: null },
+    deliveryMethod: {
+      type: String,
+      enum: ["delivery", "pickup"],
+      default: "delivery",
+      required: true
+    },
     subtotalCents: {
       type: Number,
       required: true,

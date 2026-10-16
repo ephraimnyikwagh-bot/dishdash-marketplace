@@ -3,14 +3,7 @@
 @tailwind utilities;
 
 :root {
-  font-family:
-    Inter,
-    ui-sans-serif,
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    sans-serif;
+  font-family: "Poppins", ui-sans-serif, system-ui, sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
@@ -18,16 +11,16 @@
 body {
   margin: 0;
   min-width: 320px;
-  background: #fffaf5;
+  background: #ffffff;
 }
 
 @layer components {
   .button-primary {
-    @apply inline-flex items-center justify-center rounded-xl bg-orange-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-60;
+    @apply inline-flex items-center justify-center rounded-xl bg-primary px-5 py-3 text-sm font-bold text-ink transition hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-60;
   }
 
   .button-secondary {
-    @apply inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:border-orange-200 hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-40;
+    @apply inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:border-primary-dark hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-40;
   }
 
   .field-label {
@@ -35,10 +28,88 @@ body {
   }
 
   .field-input {
-    @apply w-full rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-sm font-normal text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-orange-400 focus:ring-2 focus:ring-orange-100;
+    @apply w-full rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-sm font-normal text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-link focus:ring-2 focus:ring-primary/30;
   }
 
   .nav-link {
-    @apply rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-orange-50 hover:text-orange-700;
+    @apply rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 transition hover:bg-primary/10 hover:text-link;
   }
+
+  .glass {
+    @apply rounded-2xl border border-white/40 bg-white/65 shadow-[0_12px_32px_rgba(15,23,42,0.10),0_2px_8px_rgba(15,23,42,0.05)];
+    -webkit-backdrop-filter: blur(15px);
+    backdrop-filter: blur(15px);
+  }
+
+  .glass-strong {
+    @apply rounded-2xl border border-white/45 bg-white/70 shadow-[0_16px_42px_rgba(15,23,42,0.14),0_3px_10px_rgba(15,23,42,0.06)];
+    -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: blur(16px);
+  }
+
+  .glass-dark {
+    @apply rounded-2xl border border-white/35 bg-white/10 text-white shadow-[0_18px_48px_rgba(0,0,0,0.28),0_3px_12px_rgba(0,0,0,0.16)];
+    -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: blur(16px);
+  }
+
+  .hero-glow {
+    background:
+      radial-gradient(ellipse at 78% 12%, rgb(0 245 196 / 0.2), transparent 34%),
+      radial-gradient(ellipse at 12% 88%, rgb(0 168 140 / 0.22), transparent 36%),
+      #0a0a0a;
+  }
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass,
+  .glass-strong {
+    background-color: #ffffff;
+  }
+
+  .glass-dark {
+    background-color: #171d1c;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .glass,
+  .glass-strong {
+    background-color: #ffffff;
+  }
+
+  .glass-dark {
+    background-color: #171d1c;
+  }
+}
+
+@layer utilities {
+  .text-orange-50,
+  .text-orange-100,
+  .text-orange-200,
+  .text-orange-300,
+  .text-orange-400,
+  .text-orange-500,
+  .text-orange-600,
+  .text-orange-700,
+  .text-orange-800,
+  .text-orange-900 { color: #007f69; }
+  .bg-orange-600 { background-color: #00f5c4; color: #0a0a0a; }
+  .bg-orange-700 { background-color: #00a88c; color: #0a0a0a; }
+  .bg-orange-100 { background-color: #ccfff5; }
+  .bg-orange-50 { background-color: #e6fffa; }
+  .border-orange-100,
+  .border-orange-200 { border-color: #99ffea; }
+  .border-t-orange-600 { border-top-color: #007f69; }
+  .hover\:border-orange-200:hover { border-color: #99ffea; }
+  .hover\:bg-orange-50:hover,
+  .hover\:bg-orange-100:hover { background-color: #e6fffa; }
+  .hover\:bg-orange-500:hover { background-color: #00a88c; color: #0a0a0a; }
+  .hover\:bg-orange-600:hover { background-color: #00f5c4; color: #0a0a0a; }
+  .hover\:bg-orange-700:hover { background-color: #00a88c; color: #0a0a0a; }
+  .hover\:text-orange-600:hover,
+  .hover\:text-orange-700:hover { color: #007f69; }
+  .focus\:border-orange-400:focus { border-color: #007f69; }
+  .focus\:ring-orange-100:focus,
+  .focus\:ring-orange-400:focus { --tw-ring-color: rgb(0 245 196 / 0.3); }
 }

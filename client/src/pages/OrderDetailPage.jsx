@@ -3,12 +3,11 @@ import { Link, useParams } from "react-router-dom";
 import api, { getErrorMessage } from "../api.js";
 import Loading from "../components/Loading.jsx";
 import Notice from "../components/Notice.jsx";
+import OrderReviewForm from "../components/OrderReviewForm.jsx";
 import { formatPrice, StatusBadge } from "./OrdersPage.jsx";
 import { useAuth } from "../auth.jsx";
 import { useRealtime } from "../realtime.jsx";
 import ProductImage from "../components/ProductImage.jsx";
-
-const deliveryStages = ["Pending", "Paid", "Shipped", "Delivered"];
 
 export default function OrderDetailPage() {
   const { orderId } = useParams();
@@ -22,6 +21,7 @@ export default function OrderDetailPage() {
   const [disputeReason, setDisputeReason] = useState("");
   const [disputeBusy, setDisputeBusy] = useState(false);
   const [disputeSubmitted, setDisputeSubmitted] = useState(false);
+  const [actionBusy, setActionBusy] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -86,6 +86,20 @@ export default function OrderDetailPage() {
     } finally {
       setBusy(false);
     }
+
+  }
+
+  async function updateOrderStatus(status) {
+    setActionBusy(true);
+    setError("");
+    try {
+      const { data: response } = await api.patch(`/orders/${orderId}/status`, { status });
+      setData((current) => current ? { ...current, order: response.order } : current);
+    } catch (requestError) {
+      setError(getErrorMessage(requestError, "Could not update this order."));
+    } finally {
+      setActionBusy(false);
+    }
   }
 
   async function downloadReceipt() {
@@ -98,7 +112,7 @@ export default function OrderDetailPage() {
       const url = window.URL.createObjectURL(response.data);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `DishDash-receipt-${String(orderId).slice(-8)}.pdf`;
+      link.download = `Carted-receipt-${String(orderId).slice(-8)}.pdf`;
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -136,7 +150,10 @@ export default function OrderDetailPage() {
   if (!data) return null;
 
   const { order, items } = data;
-  const receiptAvailable = ["Paid", "Shipped", "Delivered", "Refunded"].includes(
+  const deliveryStages = order.deliveryMethod === "pickup"
+    ? ["Pending", "Paid", "Ready for pickup", "Delivered"]
+    : ["Pending", "Paid", "Shipped", "Delivered"];
+  const receiptAvailable = ["Paid", "Shipped", "Ready for pickup", "Delivered", "Refunded"].includes(
     order.status
   );
   const heading =
@@ -151,7 +168,7 @@ export default function OrderDetailPage() {
           : "Order details";
   return (
     <main className="mx-auto max-w-3xl px-4 pb-16 pt-10 sm:px-6">
-      <section className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-slate-100 sm:p-9">
+      <section className="glass-strong p-6 sm:p-9">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-orange-600">
@@ -190,6 +207,18 @@ export default function OrderDetailPage() {
             Thank you. Your payment has been confirmed.
           </p>
         )}
+        <div className={`mt-5 rounded-2xl p-4 text-sm font-semibold ${order.escrowStatus === "refunded" ? "bg-rose-50 text-rose-800" : order.escrowStatus === "released" ? "bg-emerald-50 text-emerald-800" : order.escrowStatus === "held" ? "glass-strong text-slate-900" : "bg-slate-50 text-slate-600"}`}>
+          {order.escrowStatus === "refunded"
+            ? "Refunded"
+            : order.escrowStatus === "released"
+              ? "Released to seller"
+              : order.escrowStatus === "held"
+                ? "Payment held securely"
+                : "Escrow starts after payment is confirmed"}
+        </div>
+        {user.role === "buyer" && order.status === "Delivered" && order.escrowStatus !== "refunded" && (
+          <OrderReviewForm order={order} />
+        )}
         {order.status === "Failed" && (
           <p className="mt-5 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-800">
             Payment was not completed. Reserved stock has been released. You
@@ -207,7 +236,7 @@ export default function OrderDetailPage() {
           </button>
         )}
         {user.role === "buyer" &&
-          ["Paid", "Delivered"].includes(order.status) && (
+          ["Paid", "Ready for pickup", "Delivered"].includes(order.status) && (
             <section className="mt-7 rounded-2xl bg-orange-50 p-5">
               <h2 className="font-extrabold">Report a problem</h2>
               {disputeSubmitted ? (
@@ -236,6 +265,32 @@ export default function OrderDetailPage() {
                   </button>
                 </form>
               )}
+        {user.role === "vendor" && order.status === "Paid" && (
+              <button className="button-primary mt-5" disabled={actionBusy} onClick={() => updateOrderStatus(order.deliveryMethod === "pickup" ? "Ready for pickup" : "Shipped")} type="button">
+                {actionBusy ? "Updating..." : order.deliveryMethod === "pickup" ? "Mark Ready for pickup" : "Mark Shipped"}
+              </button>
+        )}
+        {user.role === "buyer" && order.status === "Ready for pickup" && (
+              <button className="button-primary mt-5" disabled={actionBusy} onClick={() => updateOrderStatus("Delivered")} type="button">
+                {actionBusy ? "Confirming..." : "Confirm received"}
+              </button>
+        )}
+        {user.role === "buyer" && order.deliveryMethod === "delivery" && order.status === "Delivered" && order.escrowStatus === "held" && !order.hasOpenDispute && (
+          <button className="button-primary mt-5" disabled={actionBusy} onClick={async () => {
+            setActionBusy(true);
+            setError("");
+            try {
+              const { data: response } = await api.post(`/orders/${orderId}/confirm-received`);
+              setData((current) => current ? { ...current, order: response.order } : current);
+            } catch (requestError) {
+              setError(getErrorMessage(requestError, "Could not confirm receipt."));
+            } finally {
+              setActionBusy(false);
+            }
+          }} type="button">
+            {actionBusy ? "Confirming..." : "Confirm received"}
+          </button>
+        )}
             </section>
           )}
         <section className="mt-8">

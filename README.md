@@ -1,13 +1,14 @@
-# DishDash
+# Carted
 
-DishDash is a final-year-project MVP for on-demand Nigerian food delivery. It
-combines a responsive React SPA with a stateless Express API, MongoDB/Mongoose
-transactions, JWT/RBAC, sandbox payments, double-entry ledger, PDF receipts,
-and Socket.IO delivery updates.
+Carted is a Nigerian online marketplace for buying and selling everyday items.
+It combines a responsive React SPA with a stateless Express API,
+MongoDB/Mongoose transactions, JWT/RBAC, sandbox payments, a double-entry
+ledger, PDF receipts, and Socket.IO order updates.
 
-The project demonstrates the main marketplace roles and workflow end-to-end:
-buyers order food; vendors manage menus and prepare orders; couriers deliver
-them; admins audit transactions and resolve disputes. See
+The project demonstrates marketplace roles and workflows end-to-end: buyers
+discover listings, sellers manage inventory, couriers fulfill deliveries, and
+admins audit transactions and resolve disputes. Buyers can choose delivery or
+seller pickup. See
 [the 10-minute demo script](./docs/DEMO-SCRIPT.md) and
 [PRD traceability matrix](./docs/PRD-TRACEABILITY.md). For live deployment,
 follow [the free-tier deployment guide](./docs/DEPLOYMENT.md).
@@ -17,7 +18,7 @@ follow [the free-tier deployment guide](./docs/DEPLOYMENT.md).
 ```mermaid
 flowchart LR
   Buyer[Buyer browser] --> SPA[React + Vite SPA]
-  Vendor[Vendor browser] --> SPA
+  Seller[Seller browser] --> SPA
   Courier[Courier browser] --> SPA
   Admin[Admin browser] --> SPA
   SPA -->|REST / JSON + JWT| API[Express REST API]
@@ -183,19 +184,45 @@ Seed a development database in another terminal:
 npm.cmd run seed
 ```
 
-Seed users share `DishDashDemo2026!`:
+Seed accounts share `CartedDemo2026!`:
 
 | Role | Email |
 | --- | --- |
-| Buyer | `buyer@dishdash.demo` |
-| Vendor | `vendor@dishdash.demo` |
-| Courier | `courier@dishdash.demo` |
-| Admin | `admin@dishdash.demo` |
+| Buyer | `buyer@carted.demo` |
+| Seller | `vendor@carted.demo` |
+| Seller | `seller2@carted.demo` |
+| Seller | `seller3@carted.demo` |
+| Courier | `courier@carted.demo` |
+| Admin | `admin@carted.demo` |
 
-The seed script is idempotent and refuses to run in production unless
-`DEMO_MODE=true`. The admin-only `POST /api/admin/demo-seed` endpoint is also
-available only in demo mode. These public demo credentials are for demo use
-only; seeding resets their passwords.
+The seed script replaces legacy demo data and creates 24 listings across three
+sellers, verified demo reviews, and held, released, and refunded escrow examples.
+It refuses to run in production unless `DEMO_MODE=true`. The admin-only
+`POST /api/admin/demo-seed` endpoint is also available only in demo mode. These
+public demo credentials are for demo use only.
+
+### Escrow, reviews, and payouts
+
+Successful payments are booked in integer kobo as a balanced buyer-payment debit
+and escrow credit. Delivery orders stay held after courier delivery until the
+buyer confirms receipt or `ESCROW_AUTO_RELEASE_DAYS` elapses (default 3 days);
+pickup orders release when the buyer confirms receipt. Open or under-review
+disputes freeze release. Refunds reverse the hold before release or reverse the
+seller payable and platform fee after release. Ledger writes and payout posting
+run in MongoDB transactions and use idempotency keys.
+
+Sellers can review Pending in escrow, Available, and Paid out balances at
+`/wallet`. Payout requests are simulated: an admin marks them Paid out from
+`/admin/payouts`; the app does not move real money. Buyers can leave one
+1-to-5-star review (with an optional 500-character comment) after a completed
+purchase. Sellers may reply once; reported reviews can be hidden by admins,
+which removes them from the seller's aggregate rating.
+
+The API checks for due releases when buyer/seller orders or the seller wallet
+are read and also runs a timer while the server is awake. Render free instances
+can sleep, so the timer is not a guaranteed scheduler; due funds release on the
+next qualifying read after the service wakes. Use a paid always-on worker or an
+external scheduler for production timing guarantees.
 
 ### Optional Docker MongoDB
 
@@ -206,7 +233,7 @@ docker compose up -d mongo
 Set this URI in `server/.env`:
 
 ```text
-MONGODB_URI=mongodb://localhost:27017/food_marketplace?replicaSet=rs0
+MONGODB_URI=mongodb://localhost:27017/carted_marketplace?replicaSet=rs0
 ```
 
 Stop MongoDB with `docker compose down`. Add `-v` only when you intentionally
@@ -231,6 +258,7 @@ want to remove its persisted database volume.
 | `FLW_BASE_URL` | Server | Must be `https://api.flutterwave.com/v3` |
 | `FLW_REDIRECT_URL` | Server | Hosted checkout return URL |
 | `PLATFORM_FEE_BPS` | Server | Platform commission in basis points (default `1000`, 10%) |
+| `ESCROW_AUTO_RELEASE_DAYS` | Server | Buyer confirmation window after courier delivery (default `3`, integer 1–365) |
 | `CLOUDINARY_CLOUD_NAME` | Server | Cloudinary account for production product images |
 | `CLOUDINARY_API_KEY` | Server | Cloudinary upload key |
 | `CLOUDINARY_API_SECRET` | Server | Cloudinary signing secret |
@@ -241,7 +269,7 @@ want to remove its persisted database volume.
 | `LOAD_CATALOG_SECONDS` | Load test | Catalog benchmark duration per scenario in seconds (default 5) |
 
 Never commit `.env` files. Hosted Flutterwave checkout collects payment data;
-DishDash does not receive or store raw card details. Do not use demo credentials
+Carted does not receive or store raw card details. Do not use demo credentials
 or payment keys in production.
 
 ## API endpoint list
@@ -254,16 +282,20 @@ provider signature and transaction verification. Protected requests use
 | Method | Endpoint | Access | Purpose |
 | --- | --- | --- | --- |
 | `GET` | `/api/health` | Public | Health check |
-| `POST` | `/api/auth/register` | Public, rate limited | Register buyer, vendor, courier, or keyed admin |
+| `POST` | `/api/auth/register` | Public, rate limited | Register buyer, seller, courier, or keyed admin |
+| `GET` | `/api/public/featured?limit=8` | Public, rate limited | Read up to eight featured listings without seller contact data |
+| `GET` | `/api/public/listings` | Public, rate limited | Search and filter listings |
+| `GET` | `/api/public/listings/:listingId` | Public, rate limited | Read a public listing |
+| `GET` | `/api/public/sellers/:sellerId` | Public, rate limited | Read a public seller profile and listings |
 | `POST` | `/api/auth/login` | Public, rate limited | Login |
 | `GET` | `/api/auth/me` | Authenticated | Current user |
 | `GET` | `/api/products?q=&category=&page=1&limit=12` | Authenticated | Search/browse active catalog |
-| `GET` | `/api/products/mine?page=1&limit=50` | Vendor | List own products |
+| `GET` | `/api/products/mine?page=1&limit=50` | Seller | List own listings |
 | `GET` | `/api/products/:productId` | Authenticated | Read active product |
-| `POST` | `/api/products` | Vendor | Create a product |
-| `PATCH` | `/api/products/:productId` | Owning vendor | Update product/inventory |
-| `DELETE` | `/api/products/:productId` | Owning vendor | Deactivate product |
-| `POST` | `/api/products/:productId/image` | Owning vendor | Multipart field `image`: JPG/PNG/WebP, max 2 MB |
+| `POST` | `/api/products` | Seller | Create a listing |
+| `PATCH` | `/api/products/:productId` | Owning seller | Update listing/quantity |
+| `DELETE` | `/api/products/:productId` | Owning seller | Deactivate listing |
+| `POST` | `/api/products/:productId/images` | Owning seller | Multipart field `images`: up to five JPG/PNG/WebP images, max 2 MB each |
 | `GET` | `/api/cart` | Buyer | View cart |
 | `POST` | `/api/cart/items` | Buyer | Add `{ productId, quantity }` |
 | `PATCH` | `/api/cart/items/:productId` | Buyer | Set quantity |
@@ -275,7 +307,7 @@ provider signature and transaction verification. Protected requests use
 | `GET` | `/api/orders?page=1&limit=10` | Buyer/vendor/courier/admin | Role-scoped paginated orders |
 | `GET` | `/api/orders/:orderId` | Involved buyer/vendor/courier/admin | Order and item details |
 | `GET` | `/api/orders/:orderId/receipt` | Owning buyer/vendor/admin | Download PDF receipt |
-| `PATCH` | `/api/orders/:orderId/status` | Buyer/vendor | Buyer cancels Pending; vendor marks Paid as Shipped |
+| `PATCH` | `/api/orders/:orderId/status` | Buyer/seller | Buyer cancels Pending or confirms pickup; seller marks a paid order ready or shipped |
 | `GET` | `/api/courier/available?page=1&limit=10` | Courier | Available Shipped deliveries |
 | `POST` | `/api/courier/:orderId/accept` | Courier | Atomically accept delivery |
 | `GET` | `/api/courier/deliveries?page=1&limit=10` | Courier | Own deliveries |

@@ -18,7 +18,11 @@ const userSchema = new mongoose.Schema(
       required: true
     },
     phone: { type: String, trim: true, maxlength: 30 },
-    isActive: { type: Boolean, default: true }
+    isActive: { type: Boolean, default: true },
+    ratingAverage: { type: Number, min: 0, max: 5, default: 0 },
+    ratingCount: { type: Number, min: 0, default: 0 },
+    ratingSum: { type: Number, min: 0, default: 0 },
+    walletVersion: { type: Number, min: 0, default: 0 }
   },
   { timestamps: true }
 );

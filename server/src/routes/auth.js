@@ -40,7 +40,7 @@ const registrationValidation = [
   body("role")
     .optional()
     .isIn(roles)
-    .withMessage("Role must be buyer, vendor, courier, or admin")
+    .withMessage("Choose buyer, seller, courier, or admin")
 ];
 
 function sendValidationErrors(request, response) {
@@ -68,8 +68,8 @@ function issueToken(user) {
   return jwt.sign({ role: user.role }, getJwtSecret(), {
     subject: user.id,
     expiresIn: process.env.JWT_EXPIRES_IN || "1d",
-    issuer: "food-marketplace-api",
-    audience: "food-marketplace"
+    issuer: "carted-api",
+    audience: "carted"
   });
 }
 

@@ -4,6 +4,7 @@ import helmet from "helmet";
 import { fileURLToPath } from "node:url";
 import authRoutes from "./routes/auth.js";
 import productsRoutes from "./routes/products.js";
+import publicRoutes from "./routes/public.js";
 import cartRoutes from "./routes/cart.js";
 import { createCheckoutRouter } from "./routes/checkout.js";
 import { createPaymentsRouter } from "./routes/payments.js";
@@ -12,6 +13,7 @@ import ledgerRoutes from "./routes/ledger.js";
 import courierRoutes from "./routes/courier.js";
 import adminRoutes from "./routes/admin.js";
 import disputeRoutes from "./routes/disputes.js";
+import reviewRoutes from "./routes/reviews.js";
 import { getAllowedOrigins } from "./config/origins.js";
 
 const app = express();
@@ -54,6 +56,7 @@ app.get("/api/health", (_request, response) => {
 });
 
 app.use("/api/auth", authRoutes);
+app.use("/api/public", publicRoutes);
 app.use("/api/products", productsRoutes);
 app.use("/api/cart", cartRoutes);
 app.use("/api/checkout", createCheckoutRouter());
@@ -63,6 +66,7 @@ app.use("/api/courier", courierRoutes);
 app.use("/api/ledger", ledgerRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/disputes", disputeRoutes);
+app.use("/api/reviews", reviewRoutes);
 
 app.use((error, _request, response, _next) => {
   console.error("Unhandled API error", {
